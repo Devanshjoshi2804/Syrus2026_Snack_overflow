@@ -15,8 +15,9 @@ from onboardai.checklist.planner import ChecklistPlanner
 from onboardai.config import AppConfig, load_config
 from onboardai.content.parser import parse_contacts, parse_personas, parse_setup_guides
 from onboardai.content.registry import build_default_registry, validate_registry_files
-from onboardai.computer_use.worker import ComputerUseWorker
+from onboardai.computer_use.worker import build_worker, ComputerUseWorker
 from onboardai.email.generator import CompletionReportGenerator
+from onboardai.llm_backend import LLMBackend, build_llm_backend
 from onboardai.local_llm import LocalResponder
 from onboardai.models import (
     AutomationMode,
@@ -52,7 +53,8 @@ class OnboardingEngine:
         self.retriever = KnowledgeRetriever(self.config.dataset_root, build_vector_store(self.config))
         self.sandbox_manager = build_sandbox_manager(self.config)
         self.browser_adapter = build_browser_adapter(self.config)
-        self.worker = ComputerUseWorker(self.config, self.sandbox_manager, self.browser_adapter)
+        self.llm_backend = build_llm_backend(self.config)
+        self.worker = build_worker(self.config, self.sandbox_manager, self.browser_adapter, self.llm_backend)
         self.email_generator = CompletionReportGenerator(
             self.config.dataset_root / "email_templates.md",
             self.config.outputs_dir,
@@ -623,10 +625,64 @@ def build_langgraph(engine: OnboardingEngine | None = None):
     def intake(state: dict):
         onboarding_state = state["state"]
         response = runtime.intake_node(onboarding_state, state["message"])
-        return {"state": onboarding_state, "response": response}
+        return {"state": onboarding_state, "response": response, "message": ""}
+
+    def rag_qa(state: dict):
+        onboarding_state = state["state"]
+        response = runtime.rag_qa_node(onboarding_state, state["message"])
+        return {"state": onboarding_state, "response": response, "message": ""}
+
+    def task_presentation(state: dict):
+        onboarding_state = state["state"]
+        response = runtime.task_presentation_node(onboarding_state)
+        return {"state": onboarding_state, "response": response, "message": ""}
+
+    def task_action_router(state: dict):
+        onboarding_state = state["state"]
+        action_str = state.get("action", "self_complete")
+        action = TaskAction(action_str) if action_str in {a.value for a in TaskAction} else TaskAction.SELF_COMPLETE
+        response = runtime.task_action_router_node(onboarding_state, action, state.get("reason"))
+        return {"state": onboarding_state, "response": response, "message": ""}
+
+    def email_generation(state: dict):
+        onboarding_state = state["state"]
+        response = runtime.email_generation_node(onboarding_state)
+        return {"state": onboarding_state, "response": response, "message": ""}
+
+    def route_message(state: dict) -> str:
+        onboarding_state = state["state"]
+        msg = (state.get("message") or "").strip()
+        if not onboarding_state.employee_profile:
+            return "intake"
+        lowered = msg.lower()
+        if msg.endswith("?") or lowered.startswith(QUESTION_PREFIXES):
+            return "rag_qa"
+        if lowered in {"next", "continue", "show next task"}:
+            return "task_presentation"
+        if state.get("action"):
+            return "task_action_router"
+        if runtime._ready_for_completion_email(onboarding_state):
+            return "email_generation"
+        return "task_presentation"
 
     graph = StateGraph(dict)
-    graph.add_node("intake_node", intake)
-    graph.add_edge(START, "intake_node")
-    graph.add_edge("intake_node", END)
+    graph.add_node("intake", intake)
+    graph.add_node("rag_qa", rag_qa)
+    graph.add_node("task_presentation", task_presentation)
+    graph.add_node("task_action_router", task_action_router)
+    graph.add_node("email_generation", email_generation)
+
+    graph.add_conditional_edges(START, route_message, {
+        "intake": "intake",
+        "rag_qa": "rag_qa",
+        "task_presentation": "task_presentation",
+        "task_action_router": "task_action_router",
+        "email_generation": "email_generation",
+    })
+    graph.add_edge("intake", END)
+    graph.add_edge("rag_qa", END)
+    graph.add_edge("task_presentation", END)
+    graph.add_edge("task_action_router", END)
+    graph.add_edge("email_generation", END)
+
     return graph.compile()

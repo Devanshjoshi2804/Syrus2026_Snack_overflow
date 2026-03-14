@@ -1,17 +1,28 @@
 from __future__ import annotations
 
 from onboardai.config import AppConfig
+from onboardai.llm_backend import LLMBackend
 
 
 class LocalResponder:
     def __init__(self, config: AppConfig) -> None:
         self.config = config
+        self._llm_backend = LLMBackend(config)
 
     def is_enabled(self) -> bool:
+        if self._llm_backend.is_enabled():
+            return True
         return self.config.llm_backend == "ollama"
 
     def answer(self, question: str, context: str) -> str | None:
-        if not self.is_enabled():
+        # Try Groq/Mistral first
+        if self._llm_backend.is_enabled():
+            result = self._llm_backend.answer(question, context)
+            if result:
+                return result
+
+        # Fallback to Ollama
+        if self.config.llm_backend != "ollama":
             return None
         try:
             import ollama

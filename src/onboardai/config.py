@@ -44,7 +44,11 @@ class AppConfig(BaseModel):
     )
     e2b_api_key: str | None = os.getenv("E2B_API_KEY")
     e2b_timeout_seconds: int = int(os.getenv("ONBOARDAI_E2B_TIMEOUT_SECONDS", "900"))
-    llm_backend: str = os.getenv("ONBOARDAI_LLM_BACKEND", "heuristic")
+    llm_backend: str = os.getenv("ONBOARDAI_LLM_BACKEND", "groq")
+    groq_api_key: str | None = os.getenv("GROQ_API_KEY")
+    groq_model: str = os.getenv("ONBOARDAI_GROQ_MODEL", "llama-3.3-70b-versatile")
+    mistral_api_key: str | None = os.getenv("MISTRAL_API_KEY")
+    mistral_model: str = os.getenv("ONBOARDAI_MISTRAL_MODEL", "mistral-small-latest")
     ollama_host: str = os.getenv("OLLAMA_HOST", "http://localhost:11434")
     ollama_model: str = os.getenv("OLLAMA_MODEL", "qwen2.5-coder:7b")
     browser_backend: str = os.getenv("ONBOARDAI_BROWSER_BACKEND", "mock")
@@ -73,6 +77,10 @@ class AppConfig(BaseModel):
     def validate_runtime(self) -> None:
         if self.mode == RunMode.DEMO_REAL and not self.e2b_api_key:
             raise RuntimeError("demo_real mode requires E2B_API_KEY for live sandbox use.")
+        if self.llm_backend == "groq" and not self.groq_api_key:
+            raise RuntimeError("llm_backend=groq requires GROQ_API_KEY.")
+        if self.llm_backend == "mistral" and not self.mistral_api_key:
+            raise RuntimeError("llm_backend=mistral requires MISTRAL_API_KEY.")
 
     def ensure_directories(self) -> None:
         self.qdrant_path.mkdir(parents=True, exist_ok=True)
