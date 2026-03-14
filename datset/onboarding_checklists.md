@@ -14,7 +14,7 @@ These items apply to every new hire regardless of role or experience level.
 | C-04 | Set up 1Password (company password manager) | Security | Employee | Day 1 |
 | C-05 | Enable MFA on Google Workspace | Security | Employee | Day 1 |
 | C-06 | Enable MFA on GitHub | Security | Employee | Day 1 |
-| C-07 | Accept GitHub organization invite (novabyte org) | Access | Employee | Day 1 |
+| C-07 | Accept GitHub organization invite (NovaByte-Technologies org) | Access | Employee | Day 1 |
 | C-08 | Accept Jira workspace invite | Access | Employee | Day 1 |
 | C-09 | Join Notion workspace and bookmark Engineering space | Knowledge | Employee | Day 1 |
 | C-10 | Install and configure VPN (WireGuard) | Network | Employee | Day 1 |

@@ -37,7 +37,7 @@
 ## Access & Accounts
 
 ### Q6: How do I get GitHub access?
-**A:** You'll receive a GitHub organization invite to `novabyte` on your NovaByte email within your first day. Accept the invite and enable MFA (hardware key or authenticator app). If you haven't received the invite by end of Day 1, contact Tanvi Shah (DX Lead) at `tanvi.s@novabyte.dev` or Slack `@tanvi.shah`.
+**A:** You'll receive a GitHub organization invite to `NovaByte-Technologies` on your NovaByte email within your first day. Accept the invite and enable MFA (hardware key or authenticator app). If you haven't received the invite by end of Day 1, contact Tanvi Shah (DX Lead) at `tanvi.s@novabyte.dev` or Slack `@tanvi.shah`.
 
 ### Q7: How do I get Jira access?
 **A:** A Jira workspace invite is sent to your NovaByte email on Day 1. Accept the invite to access the NovaByte Atlassian workspace. Your squad's board will be shared by your manager. If you need access to additional projects, request via your manager. For issues, contact Lakshmi Venkatesh (QA Lead) at Slack `@lakshmi.v`.

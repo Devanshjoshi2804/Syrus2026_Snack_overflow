@@ -1,0 +1,30 @@
+[project]
+name = "onboardai"
+version = "0.1.0"
+description = "Hackathon MVP for the PS-03 autonomous developer onboarding agent."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+  "chainlit>=2.0.0",
+  "ollama>=0.5.1",
+  "langgraph>=0.3.0",
+  "playwright>=1.54.0",
+  "pydantic>=2.11.0",
+  "python-dotenv>=1.0.1",
+  "qdrant-client>=1.14.0",
+  "sentence-transformers>=4.1.0",
+  "e2b-desktop>=1.8.0",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.3.0",
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"

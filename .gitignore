@@ -1,0 +1,9 @@
+.venv/
+__pycache__/
+.pytest_cache/
+.chainlit/
+.env
+outputs/completion_reports/*
+!outputs/completion_reports/.gitkeep
+qdrant_storage/
+*.pyc
