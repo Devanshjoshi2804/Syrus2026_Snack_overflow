@@ -132,7 +132,9 @@ if cl is not None:  # pragma: no cover - exercised in Chainlit runtime
             await dashboard_element.send(for_id=workspace_message.id)
             cl.user_session.set("dashboard_element", dashboard_element)
             return
-        dashboard_element.props = build_dashboard_props(state)
+        next_props = build_dashboard_props(state)
+        dashboard_element.props.clear()
+        dashboard_element.props.update(next_props)
         await dashboard_element.update()
 
     async def _sync_workspace(state):
