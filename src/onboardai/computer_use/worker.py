@@ -12,7 +12,7 @@ from onboardai.computer_use.prompts import (
     BROWSER_TOOL,
 )
 from onboardai.llm_backend import LLMBackend
-from onboardai.models import ComputerUseInstruction, ComputerUseResult, SandboxSession
+from onboardai.models import ComputerUseInstruction, ComputerUseResult, RunMode, SandboxSession
 
 
 class ComputerUseWorker:
@@ -204,6 +204,11 @@ def build_worker(
     llm_backend: LLMBackend | None = None,
 ) -> ComputerUseWorker | AgenticComputerUseWorker:
     """Factory: Use agentic worker when LLM backend is available, else deterministic."""
-    if llm_backend and llm_backend.is_enabled() and config.llm_backend in ("groq", "mistral"):
+    if (
+        config.mode == RunMode.DEMO_REAL
+        and llm_backend
+        and llm_backend.is_enabled()
+        and config.llm_backend in ("groq", "mistral")
+    ):
         return AgenticComputerUseWorker(config, sandbox_manager, browser_adapter, llm_backend)
     return ComputerUseWorker(config, sandbox_manager, browser_adapter)

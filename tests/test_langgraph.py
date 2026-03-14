@@ -30,7 +30,8 @@ def test_langgraph_routes_intake_for_new_user(project_root):
         "state": state,
         "message": "Hi, I'm Riya. I've joined as a Backend Intern working on Node.js.",
     })
-    assert "Matched persona" in result["response"]
+    assert "Welcome Riya" in result["response"]
+    assert "Step 1: `C-01`" in result["response"]
     assert result["state"].employee_profile is not None
 
 

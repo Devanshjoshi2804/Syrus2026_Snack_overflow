@@ -33,6 +33,72 @@ from onboardai.state import choose_next_task, get_current_task, mark_completed, 
 
 
 QUESTION_PREFIXES = ("how", "what", "when", "where", "who", "why", "can", "do", "should")
+HELP_PATTERNS = (
+    "i dont know",
+    "i don't know",
+    "help me",
+    "i need help",
+    "what do i do",
+    "what should i do",
+    "i am confused",
+    "i'm confused",
+    "not sure",
+    "dont know anything",
+    "don't know anything",
+)
+COMPLETION_HINTS = (
+    "yes i have",
+    "yes i did",
+    "i have received",
+    "i received",
+    "i have recived",
+    "i recived",
+    "received laptop",
+    "recived laptop",
+    "i got",
+    "i have got",
+    "i completed",
+    "i have completed",
+    "i finished",
+    "i have finished",
+    "i set up",
+    "i setup",
+    "done with this",
+    "have the laptop",
+    "have my laptop",
+    "received company laptop",
+    "received the company laptop",
+)
+TYPED_ACTION_PHRASES = {
+    TaskAction.WATCH_AGENT: {
+        "watch agent do this",
+        "watch agent",
+        "agent do this",
+        "let agent do it",
+        "let the agent do it",
+        "agent do it",
+        "do this for me",
+        "do it for me",
+        "run it for me",
+    },
+    TaskAction.SELF_COMPLETE: {
+        "i did it myself",
+        "i did this myself",
+        "done",
+        "completed",
+        "mark done",
+        "mark it done",
+        "yes mark it done",
+        "complete this",
+        "i finished this",
+    },
+    TaskAction.SKIP: {
+        "skip",
+        "skip this",
+        "skip task",
+        "skip it",
+    },
+}
 
 
 class OnboardingEngine:
@@ -85,11 +151,13 @@ class OnboardingEngine:
         choose_next_task(state)
         state.completion_status = "in_progress"
         match = state.matched_persona
+        current_task = get_current_task(state)
         return (
-            f"Matched persona: {match.persona.name} ({match.persona.title}). "
-            f"Prepared {len(state.task_plan)} onboarding tasks for a {state.employee_profile.role_family} "
-            f"{state.employee_profile.experience_level} path.\n\n"
-            f"{self.task_presentation_node(state)}"
+            f"Welcome {state.employee_profile.name}. "
+            f"You're onboarding as {match.persona.title}. "
+            f"We're starting with Step 1: `{current_task.task_id}` {current_task.title}. "
+            "Look at the workspace card for the exact walkthrough and use its buttons instead of guessing commands. "
+            "If you already have the laptop, click **I have the laptop** or say `i have the laptop`."
         )
 
     def task_presentation_node(self, state: OnboardingState) -> str:
@@ -116,6 +184,7 @@ class OnboardingEngine:
                 f"- Repo: {starter_ticket.get('Repo URL', 'N/A')}\n"
                 f"- Tracking: {starter_ticket.get('Tracking URL', 'N/A')}\n"
             )
+        actions_line = self._actions_line(task)
         return (
             f"Current task: `{task.task_id}` {task.title}\n"
             f"Category: {task.category}\n"
@@ -124,7 +193,7 @@ class OnboardingEngine:
             f"Evidence: {evidence}\n\n"
             f"Relevant context:\n{citations}\n\n"
             f"{starter_context}"
-            "Actions available: Watch agent do this / I did it myself / Skip."
+            f"{actions_line}"
         )
 
     def rag_qa_node(self, state: OnboardingState, question: str) -> str:
@@ -156,23 +225,46 @@ class OnboardingEngine:
         task = get_current_task(state) or choose_next_task(state)
         if not task:
             return self.email_generation_node(state)
+        if action not in self._available_actions_for_task(task):
+            next_agent_task = self._next_agent_task(state)
+            next_agent_line = ""
+            if next_agent_task:
+                next_agent_line = (
+                    f"\n\nThe next agent-runnable step is `{next_agent_task.task_id}` "
+                    f"{next_agent_task.title}."
+                )
+            return (
+                f"`{task.task_id}` is a manual step, so the agent cannot execute it directly."
+                f"{next_agent_line}\n\n"
+                "Use the workspace card on the right: it shows what this step means, how to finish it, and the exact button to click next."
+            )
         if action == TaskAction.SKIP:
             mark_skipped(state, task.task_id, reason or "Skipped by user.")
+            resolution_line = f"Skipped `{task.task_id}` {task.title}."
         elif action == TaskAction.SELF_COMPLETE:
             mark_completed(state, task.task_id, "self_reported", reason or "Completed by user.")
+            resolution_line = f"Marked `{task.task_id}` {task.title} complete."
         else:
             set_task_status(state, task.task_id, TaskStatus.IN_PROGRESS)
             result = self.computer_use_dispatch_node(state)
             if result.success:
                 detail = ", ".join(f"{key}={value}" for key, value in result.verified_values.items())
                 mark_completed(state, task.task_id, "agent", detail or "Agent completed task.", artifacts=result.artifacts, verified_values=result.verified_values)
+                resolution_line = f"Agent completed `{task.task_id}` {task.title}."
             else:
                 set_task_status(state, task.task_id, TaskStatus.BLOCKED)
-                return f"Task blocked: {result.failure_reason}\n\n{self.task_presentation_node(state)}"
+                return f"Task blocked: {result.failure_reason}\n\n{self._chat_current_task_summary(state)}"
         choose_next_task(state)
         if self._ready_for_completion_email(state):
             return self.email_generation_node(state)
-        return self.task_presentation_node(state)
+        next_task = get_current_task(state)
+        if not next_task:
+            return resolution_line
+        return (
+            f"{resolution_line}\n\n"
+            f"Next step: `{next_task.task_id}` {next_task.title}. "
+            "I updated the workspace with the next walkthrough and actions."
+        )
 
     def computer_use_dispatch_node(self, state: OnboardingState):
         task = get_current_task(state)
@@ -197,13 +289,59 @@ class OnboardingEngine:
         if not state.employee_profile:
             return self.intake_node(state, stripped)
         lowered = stripped.lower()
+        typed_action = self._parse_typed_action(stripped)
+        if typed_action is not None:
+            reason = None
+            if typed_action == TaskAction.SKIP:
+                reason = "Skipped from chat."
+            elif typed_action == TaskAction.SELF_COMPLETE:
+                reason = "Completed from chat."
+            return self.task_action_router_node(state, typed_action, reason)
+        if self._looks_like_completion_confirmation(state, lowered):
+            return self.task_action_router_node(state, TaskAction.SELF_COMPLETE, "Completed from conversation.")
+        if self._looks_like_help_request(lowered):
+            return self.task_help_node(state, stripped)
         if stripped.endswith("?") or lowered.startswith(QUESTION_PREFIXES):
             return self.rag_qa_node(state, stripped)
         if lowered in {"next", "continue", "show next task"}:
-            return self.task_presentation_node(state)
+            return self._chat_current_task_summary(state)
         return (
-            "Use the task actions for completions or ask a question about onboarding. "
-            f"\n\n{self.task_presentation_node(state)}"
+            "Use the workspace buttons for this step. If you need help, click **Explain this step** or ask "
+            "`what do i do for this step`."
+        )
+
+    def task_help_node(self, state: OnboardingState, message: str) -> str:
+        task = get_current_task(state) or choose_next_task(state)
+        if not task:
+            return "There is no active task right now."
+        title = task.title.lower()
+        if "laptop" in title:
+            return (
+                "For this step, you only need to confirm that you physically received the company laptop, "
+                "charger, and can turn it on. There is no technical setup yet. "
+                "If you already have it, click **I have the laptop** in the workspace or say `i have the laptop`."
+            )
+        if "google workspace" in title:
+            return (
+                "This step is manual. Open your NovaByte welcome email, accept the Google Workspace invite, "
+                "sign in once, and make sure Gmail, Calendar, and Drive all open. "
+                "When they do, click **I activated it** in the workspace."
+            )
+        if "slack" in title:
+            return (
+                "This step can be agent-assisted. In the workspace, use **Run agent for me** to automate it, "
+                "or open Slack yourself, join the required channels, and then click **I joined Slack**."
+            )
+        hits = self.retriever.query(f"{task.title}\n{message}", profile=state.employee_profile, limit=2)
+        if hits:
+            excerpt = hits[0].chunk.text.strip().split("\n", 1)[-1][:260].strip()
+            return (
+                f"For `{task.task_id}` {task.title}: {excerpt}\n\n"
+                "If you want, say `let agent do it` when the task is agent-runnable, or `mark it done` after you finish it."
+            )
+        return (
+            f"For `{task.task_id}` {task.title}, follow the guidance in the workspace panel and then mark it done. "
+            "If you are stuck, ask a direct question like `how do I do this step?`."
         )
 
     def serialize_dashboard(self, state: OnboardingState) -> str:
@@ -229,6 +367,15 @@ class OnboardingEngine:
             "sandbox_backend": self.sandbox_manager.__class__.__name__,
         }
 
+    def available_actions(self, state: OnboardingState) -> list[TaskAction]:
+        task = get_current_task(state) or choose_next_task(state)
+        if not task:
+            return []
+        return self._available_actions_for_task(task)
+
+    def next_agent_task(self, state: OnboardingState):
+        return self._next_agent_task(state)
+
     def _fallback_contact(self, question: str) -> dict[str, str]:
         lower = question.lower()
         if "github" in lower or "access" in lower:
@@ -251,6 +398,76 @@ class OnboardingEngine:
             return state.selected_starter_ticket
         if state.matched_persona:
             return self.planner.pick_starter_ticket(state.matched_persona)
+        return None
+
+    def _actions_line(self, task) -> str:
+        available = self._available_actions_for_task(task)
+        action_labels = {
+            TaskAction.WATCH_AGENT: "Watch agent do this",
+            TaskAction.SELF_COMPLETE: "I did it myself",
+            TaskAction.SKIP: "Skip",
+        }
+        labels = " / ".join(action_labels[action] for action in available)
+        if task.automation_mode in {AutomationMode.AGENT_TERMINAL, AutomationMode.AGENT_BROWSER}:
+            return f"Actions available: {labels}."
+        return f"Actions available: {labels}. This is a manual step, so the agent will not execute it."
+
+    def _available_actions_for_task(self, task) -> list[TaskAction]:
+        if task.automation_mode in {AutomationMode.AGENT_TERMINAL, AutomationMode.AGENT_BROWSER}:
+            return [TaskAction.WATCH_AGENT, TaskAction.SELF_COMPLETE, TaskAction.SKIP]
+        return [TaskAction.SELF_COMPLETE, TaskAction.SKIP]
+
+    def _next_agent_task(self, state: OnboardingState):
+        current_index = -1
+        for index, task in enumerate(state.task_plan):
+            if task.task_id == state.current_task_id:
+                current_index = index
+                break
+        for task in state.task_plan[current_index + 1:]:
+            if task.status in {TaskStatus.NOT_STARTED, TaskStatus.IN_PROGRESS} and task.automation_mode in {
+                AutomationMode.AGENT_TERMINAL,
+                AutomationMode.AGENT_BROWSER,
+            }:
+                return task
+        return None
+
+    def _looks_like_help_request(self, lowered: str) -> bool:
+        return any(pattern in lowered for pattern in HELP_PATTERNS)
+
+    def _looks_like_completion_confirmation(self, state: OnboardingState, lowered: str) -> bool:
+        task = get_current_task(state)
+        if not task:
+            return False
+        normalized = lowered.replace("recived", "received").replace("setup", "set up")
+        if any(pattern in lowered for pattern in COMPLETION_HINTS):
+            return True
+        if "laptop" in task.title.lower() and "laptop" in normalized and any(
+            token in normalized for token in ("received", "have", "got")
+        ):
+            return True
+        return False
+
+    def _chat_current_task_summary(self, state: OnboardingState) -> str:
+        task = get_current_task(state) or choose_next_task(state)
+        if not task:
+            return "All onboarding tasks are resolved."
+        action_labels = {
+            TaskAction.WATCH_AGENT: "let agent do it",
+            TaskAction.SELF_COMPLETE: "mark it done",
+            TaskAction.SKIP: "skip this",
+        }
+        actions = ", ".join(action_labels[action] for action in self._available_actions_for_task(task))
+        return (
+            f"Current step: `{task.task_id}` {task.title}. "
+            f"Available actions: {actions}. "
+            "The workspace card has the walkthrough, the buttons, and the next steps."
+        )
+
+    def _parse_typed_action(self, message: str) -> TaskAction | None:
+        normalized = re.sub(r"\s+", " ", re.sub(r"[^a-z0-9\s]", " ", message.lower())).strip()
+        for action, phrases in TYPED_ACTION_PHRASES.items():
+            if normalized in phrases:
+                return action
         return None
 
     def _build_instruction(self, task, state: OnboardingState) -> ComputerUseInstruction:
@@ -655,6 +872,9 @@ def build_langgraph(engine: OnboardingEngine | None = None):
         if not onboarding_state.employee_profile:
             return "intake"
         lowered = msg.lower()
+        if runtime._parse_typed_action(msg) is not None:
+            state["action"] = runtime._parse_typed_action(msg).value
+            return "task_action_router"
         if msg.endswith("?") or lowered.startswith(QUESTION_PREFIXES):
             return "rag_qa"
         if lowered in {"next", "continue", "show next task"}:

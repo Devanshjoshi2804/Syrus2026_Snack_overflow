@@ -1,0 +1,35 @@
+{
+    "status": "Step 1/48 · 0 done",
+    "tasks": [
+        {
+            "title": "C-01 Receive and set up company laptop",
+            "status": "running",
+            "forId": null
+        },
+        {
+            "title": "C-02 Activate NovaByte Google Workspace account (email, calendar, drive)",
+            "status": "ready",
+            "forId": null
+        },
+        {
+            "title": "C-03 Set up Slack and join mandatory channels (#engineering-general, #new-joiners, #team-{squad})",
+            "status": "ready",
+            "forId": null
+        },
+        {
+            "title": "C-04 Set up 1Password (company password manager)",
+            "status": "ready",
+            "forId": null
+        },
+        {
+            "title": "C-05 Enable MFA on Google Workspace",
+            "status": "ready",
+            "forId": null
+        },
+        {
+            "title": "C-06 Enable MFA on GitHub",
+            "status": "ready",
+            "forId": null
+        }
+    ]
+}

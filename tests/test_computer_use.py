@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+from unittest.mock import MagicMock
+
 from onboardai.adapters.browser import MockBrowserAdapter
 from onboardai.adapters.e2b import MockSandboxManager
-from onboardai.computer_use.worker import ComputerUseWorker
+from onboardai.computer_use.worker import AgenticComputerUseWorker, ComputerUseWorker, build_worker
 from onboardai.config import AppConfig
+from onboardai.models import RunMode
 from onboardai.models import ComputerUseInstruction
 
 
@@ -43,3 +46,15 @@ def test_computer_use_worker_uses_mock_browser(project_root):
     )
     assert result.success is True
     assert result.verified_values["url"] == "https://github.com/novabyte-demo"
+
+
+def test_dev_mock_mode_forces_deterministic_worker(project_root):
+    config = AppConfig(
+        project_root=project_root,
+        mode=RunMode.DEV_MOCK,
+        llm_backend="groq",
+        groq_api_key="test-key",
+    )
+    worker = build_worker(config, MockSandboxManager(), MockBrowserAdapter(), MagicMock(is_enabled=lambda: True))
+    assert isinstance(worker, ComputerUseWorker)
+    assert not isinstance(worker, AgenticComputerUseWorker)
