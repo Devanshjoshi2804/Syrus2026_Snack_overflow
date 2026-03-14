@@ -270,7 +270,7 @@ export default function OnboardingDashboard(props) {
         top: desktopLayout ? "82px" : "auto",
         bottom: desktopLayout ? "122px" : "auto",
         overflow: "auto",
-        zIndex: 8,
+        zIndex: props.renderLayer || 8,
       }}
     >
       <div

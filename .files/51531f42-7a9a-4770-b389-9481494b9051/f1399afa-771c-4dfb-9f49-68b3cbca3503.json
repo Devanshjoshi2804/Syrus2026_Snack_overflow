@@ -1,19 +1,14 @@
 {
-    "status": "Step 1/48 · 0 done",
+    "status": "Step 3/48 · 2 done",
     "tasks": [
         {
-            "title": "C-01 Receive and set up company laptop",
-            "status": "running",
-            "forId": null
-        },
-        {
             "title": "C-02 Activate NovaByte Google Workspace account (email, calendar, drive)",
-            "status": "ready",
+            "status": "done",
             "forId": null
         },
         {
             "title": "C-03 Set up Slack and join mandatory channels (#engineering-general, #new-joiners, #team-{squad})",
-            "status": "ready",
+            "status": "running",
             "forId": null
         },
         {
@@ -28,6 +23,11 @@
         },
         {
             "title": "C-06 Enable MFA on GitHub",
+            "status": "ready",
+            "forId": null
+        },
+        {
+            "title": "C-07 Accept GitHub organization invite (NovaByte-Technologies org)",
             "status": "ready",
             "forId": null
         }

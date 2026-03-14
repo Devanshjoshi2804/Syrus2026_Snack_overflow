@@ -1,8 +1,6 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
-
 from onboardai.graph import OnboardingEngine
 from onboardai.models import TaskAction, TaskStatus
 from onboardai.state import get_current_task
@@ -16,10 +14,6 @@ except ImportError:  # pragma: no cover - optional runtime dependency
 
 
 ENGINE = OnboardingEngine()
-
-
-def _ensure_chainlit_files_dir() -> None:
-    Path(".files").mkdir(exist_ok=True)
 
 
 def _chainlit_task_status(task, current_task_id, cl_module):
@@ -63,19 +57,86 @@ def _visible_tasks(state, window: int = 6):
     return state.task_plan[start:end]
 
 
+def _workspace_actions(state):
+    if cl is None:
+        return []
+    task = get_current_task(state)
+    if not task:
+        return []
+    props = build_dashboard_props(state)
+    labels = props.get("actionLabels", {})
+    actions = [
+        cl.Action(name="explain_task", label=labels.get("explain_task", "Explain this step"), payload={"action": "explain_task"}),
+    ]
+    available = ENGINE.available_actions(state)
+    if TaskAction.WATCH_AGENT in available:
+        actions.append(
+            cl.Action(name="watch_agent", label=labels.get("watch_agent", "Run agent for me"), payload={"action": "watch_agent"})
+        )
+    if TaskAction.SELF_COMPLETE in available:
+        actions.append(
+            cl.Action(name="self_complete", label=labels.get("self_complete", "Mark done"), payload={"action": "self_complete"})
+        )
+    actions.append(cl.Action(name="skip_task", label=labels.get("skip", "Skip for now"), payload={"action": "skip"}))
+    return actions
+
+
+def _workspace_content(state, note: str | None = None) -> str:
+    props = build_dashboard_props(state)
+    walkthrough = props.get("walkthrough", {})
+    lines: list[str] = ["## Guided Workspace"]
+    if note:
+        lines.append(note)
+    if not props.get("currentTaskId"):
+        lines.append("Tell me your role, level, and tech stack to start the onboarding plan.")
+        lines.append("Example: `Hi, I'm Riya. I've joined as a Backend Intern working on Node.js.`")
+        return "\n\n".join(lines)
+
+    lines.append(
+        f"**Step {props.get('currentTaskIndex')}/{props.get('totalTasks')}**  \n"
+        f"`{props.get('currentTaskId')}` {props.get('currentTask')}"
+    )
+    if walkthrough.get("summary"):
+        lines.append(walkthrough["summary"])
+    steps = walkthrough.get("steps") or []
+    if steps:
+        lines.append("**What to do now**")
+        lines.extend(f"{index}. {step}" for index, step in enumerate(steps, start=1))
+    if walkthrough.get("completionHint"):
+        lines.append(f"**Fastest way to finish:** {walkthrough['completionHint']}")
+    if walkthrough.get("whyItMatters"):
+        lines.append(f"**Why this matters:** {walkthrough['whyItMatters']}")
+
+    upcoming = props.get("upcomingTasks") or []
+    if len(upcoming) > 1:
+        lines.append("**Up next**")
+        lines.extend(
+            f"- Step {task['index']}: `{task['taskId']}` {task['title']}"
+            for task in upcoming[1:4]
+        )
+
+    next_agent = props.get("nextAgentTask")
+    if next_agent and props.get("currentTaskAutomation") not in {"agent_browser", "agent_terminal"}:
+        lines.append(
+            f"**Agent help starts at:** `{next_agent['taskId']}` {next_agent['title']}"
+        )
+
+    items = props.get("items") or []
+    if items:
+        latest = items[-1]
+        lines.append(
+            f"**Latest proof:** `{latest['taskId']}` {latest['title']} -> {latest['status']}"
+        )
+
+    return "\n\n".join(lines)
+
+
 if cl is not None:  # pragma: no cover - exercised in Chainlit runtime
     @cl.on_chat_start
     async def on_chat_start():
-        _ensure_chainlit_files_dir()
         state = ENGINE.new_state()
         cl.user_session.set("state", state)
 
-        dashboard_element = cl.CustomElement(
-            name="OnboardingDashboard",
-            props=build_dashboard_props(state),
-            display="inline",
-            size="large",
-        )
         intro_message = await cl.Message(
             content=(
                 "## OnboardAI\n\n"
@@ -86,9 +147,7 @@ if cl is not None:  # pragma: no cover - exercised in Chainlit runtime
             ),
             author="OnboardAI",
         ).send()
-        await dashboard_element.send(for_id=intro_message.id)
         cl.user_session.set("workspace_message", intro_message)
-        cl.user_session.set("dashboard_element", dashboard_element)
 
         task_list = cl.TaskList(display="side", status=_task_list_status_text(state))
         await task_list.send()
@@ -114,32 +173,21 @@ if cl is not None:  # pragma: no cover - exercised in Chainlit runtime
         ]
         await task_list.update()
 
-    async def _sync_dashboard(state):
-        _ensure_chainlit_files_dir()
-        state.dashboard_state.health = ENGINE.runtime_health()
-        dashboard_element = cl.user_session.get("dashboard_element")
-        if not dashboard_element:
-            dashboard_element = cl.CustomElement(
-                name="OnboardingDashboard",
-                props=build_dashboard_props(state),
-                display="inline",
-                size="large",
-            )
-            workspace_message = cl.user_session.get("workspace_message")
-            if not workspace_message:
-                workspace_message = await cl.Message(content="## Workspace", author="OnboardAI").send()
-                cl.user_session.set("workspace_message", workspace_message)
-            await dashboard_element.send(for_id=workspace_message.id)
-            cl.user_session.set("dashboard_element", dashboard_element)
-            return
-        next_props = build_dashboard_props(state)
-        dashboard_element.props.clear()
-        dashboard_element.props.update(next_props)
-        await dashboard_element.update()
+    async def _sync_workspace_message(state, note: str | None = None):
+        previous_message = cl.user_session.get("workspace_message")
+        if previous_message:
+            previous_message.actions = []
+            await previous_message.update()
+        workspace_message = await cl.Message(
+            content=_workspace_content(state, note),
+            actions=_workspace_actions(state),
+            author="OnboardAI",
+        ).send()
+        cl.user_session.set("workspace_message", workspace_message)
 
-    async def _sync_workspace(state):
-        await _sync_dashboard(state)
+    async def _sync_workspace(state, note: str | None = None):
         await _sync_task_list(state)
+        await _sync_workspace_message(state, note)
 
     @cl.on_message
     async def on_message(message: cl.Message):
@@ -151,8 +199,7 @@ if cl is not None:  # pragma: no cover - exercised in Chainlit runtime
             step.output = response
 
         cl.user_session.set("state", state)
-        await cl.Message(content=response).send()
-        await _sync_workspace(state)
+        await _sync_workspace(state, response)
 
     @cl.action_callback("watch_agent")
     async def on_watch_agent(action: cl.Action):
@@ -164,32 +211,28 @@ if cl is not None:  # pragma: no cover - exercised in Chainlit runtime
             step.output = response
 
         cl.user_session.set("state", state)
-        await cl.Message(content=response).send()
-        await _sync_workspace(state)
+        await _sync_workspace(state, response)
 
     @cl.action_callback("self_complete")
     async def on_self_complete(action: cl.Action):
         state = cl.user_session.get("state")
         response = ENGINE.task_action_router_node(state, TaskAction.SELF_COMPLETE)
         cl.user_session.set("state", state)
-        await cl.Message(content=response).send()
-        await _sync_workspace(state)
+        await _sync_workspace(state, response)
 
     @cl.action_callback("skip_task")
     async def on_skip_task(action: cl.Action):
         state = cl.user_session.get("state")
         response = ENGINE.task_action_router_node(state, TaskAction.SKIP, reason="Skipped from UI")
         cl.user_session.set("state", state)
-        await cl.Message(content=response).send()
-        await _sync_workspace(state)
+        await _sync_workspace(state, response)
 
     @cl.action_callback("explain_task")
     async def on_explain_task(action: cl.Action):
         state = cl.user_session.get("state")
         response = ENGINE.task_help_node(state, "what do i do for this step")
         cl.user_session.set("state", state)
-        await cl.Message(content=response).send()
-        await _sync_workspace(state)
+        await _sync_workspace(state, response)
 
 
 def cli_demo(message: str) -> str:
