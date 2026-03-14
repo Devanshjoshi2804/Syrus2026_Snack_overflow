@@ -74,7 +74,7 @@ IP Assignment Agreement Signed:      {YES / NO}
 
 Access Provisioned
 ------------------
-GitHub (novabyte org):               {ACTIVE / PENDING}
+GitHub (NovaByte-Technologies org):  {ACTIVE / PENDING}
 Jira:                                {ACTIVE / PENDING}
 Slack:                               {ACTIVE / PENDING}
 Notion:                              {ACTIVE / PENDING}
@@ -227,8 +227,8 @@ Key Links:
 - Onboarding Portal: https://onboard.internal.novabyte.dev
 - Notion (Engineering): https://notion.novabyte.dev/engineering
 - Slack: https://novabyte.slack.com
-- GitHub: https://github.com/novabyte
-- Jira: https://novabyte.atlassian.net
+- GitHub: https://github.com/NovaByte-Technologies
+- Jira: https://novabytetechnologies.atlassian.net
 - LMS (Training): https://lms.novabyte.dev
 - BambooHR: https://novabyte.bamboohr.com
 

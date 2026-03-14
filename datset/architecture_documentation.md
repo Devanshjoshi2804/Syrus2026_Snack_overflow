@@ -68,7 +68,7 @@ NovaByte FlowEngine follows a **microservices architecture** deployed on AWS EKS
   - `PUT /api/v1/workflows/{id}` — Update workflow
   - `POST /api/v1/workflows/{id}/publish` — Publish workflow version
   - `GET /api/v1/workflows/{id}/versions` — List workflow versions
-- **Repository:** `github.com/novabyte/workflow-core`
+- **Repository:** `github.com/NovaByte-Technologies/workflow-core`
 
 ### Workflow Executor Service (Python/FastAPI)
 - **Purpose:** Executes published workflows, manages execution state, handles retries.
@@ -79,32 +79,32 @@ NovaByte FlowEngine follows a **microservices architecture** deployed on AWS EKS
                     → FAILED → RETRY → RUNNING
                     → CANCELLED
   ```
-- **Repository:** `github.com/novabyte/workflow-executor`
+- **Repository:** `github.com/NovaByte-Technologies/workflow-executor`
 
 ### Gateway Service (Node.js/Express)
 - **Purpose:** API gateway, request routing, rate limiting, authentication middleware.
 - **Rate Limiting:** 1000 requests/minute per API key (configurable).
 - **Auth:** Validates JWT tokens, attaches user context to requests.
-- **Repository:** `github.com/novabyte/gateway-service`
+- **Repository:** `github.com/NovaByte-Technologies/gateway-service`
 
 ### Auth Service (Node.js/Express)
 - **Purpose:** User authentication, authorization, SSO integration.
 - **Supports:** Email/password, Google OAuth, SAML SSO (enterprise).
 - **Token Management:** JWT with RSA-256 signing.
-- **Repository:** `github.com/novabyte/auth-service`
+- **Repository:** `github.com/NovaByte-Technologies/auth-service`
 
 ### Connector Runtime (Node.js)
 - **Purpose:** Executes third-party integrations (Salesforce, Slack, Jira, SAP, etc.)
 - **Plugin Architecture:** Each connector is an npm package implementing `IConnector` interface.
 - **Sandboxing:** Connectors run in isolated V8 contexts.
-- **Repository:** `github.com/novabyte/connector-runtime`
+- **Repository:** `github.com/NovaByte-Technologies/connector-runtime`
 
 ### Notification Service (Node.js)
 - **Purpose:** Sends email, Slack, and webhook notifications.
 - **Email Provider:** AWS SES
 - **Template Engine:** Handlebars
 - **Queue:** Kafka topic `notifications.outbound`
-- **Repository:** `github.com/novabyte/notification-service`
+- **Repository:** `github.com/NovaByte-Technologies/notification-service`
 
 ## 3. Frontend Architecture
 
@@ -118,19 +118,19 @@ NovaByte FlowEngine follows a **microservices architecture** deployed on AWS EKS
   - Visual workflow builder (drag-and-drop canvas using React Flow)
   - Real-time execution monitoring via WebSocket
   - Role-based UI rendering
-- **Repository:** `github.com/novabyte/flowengine-web`
+- **Repository:** `github.com/NovaByte-Technologies/flowengine-web`
 
 ### Design System (`@novabyte/ui-kit`)
 - Component library built on Tailwind CSS + Radix UI primitives
 - Published as internal npm package
 - Storybook available at `https://storybook.internal.novabyte.dev`
 - Components: Button, Input, Modal, Table, Toast, Card, Badge, Dropdown, DatePicker, etc.
-- **Repository:** `github.com/novabyte/ui-kit`
+- **Repository:** `github.com/NovaByte-Technologies/ui-kit`
 
 ### Admin Dashboard (React/TypeScript)
 - Internal tool for managing tenants, users, billing, and system health.
 - Same tech stack as FlowEngine Web.
-- **Repository:** `github.com/novabyte/admin-dashboard`
+- **Repository:** `github.com/NovaByte-Technologies/admin-dashboard`
 
 ## 4. Infrastructure & DevOps Architecture
 
@@ -204,7 +204,7 @@ Developer Push → GitHub Actions
 ### Infrastructure as Code
 - **Terraform** manages all AWS resources.
 - **Helm charts** for Kubernetes deployments.
-- All IaC is in `github.com/novabyte/infrastructure` repository.
+- All IaC is in `github.com/NovaByte-Technologies/infrastructure` repository.
 - Changes require PR review from Platform team.
 
 ## 5. Data Architecture
