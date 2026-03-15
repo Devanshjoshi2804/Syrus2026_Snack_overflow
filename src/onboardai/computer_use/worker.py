@@ -64,10 +64,17 @@ class ComputerUseWorker:
         transcript_parts: list[str] = []
         verified_values: dict[str, str] = {}
         observations: list[str] = []
+        failed_command: str | None = None
+        failed_exit_code: int | None = None
         for command in instruction.command_plan:
             output = self.sandbox_manager.run_command(session, command)
             transcript_parts.append(f"$ {command}\n{output}".strip())
             observations.append(f"Ran: {command}")
+            return_code = int(session.metadata.get("last_returncode", 0) or 0)
+            if return_code != 0:
+                failed_command = command
+                failed_exit_code = return_code
+                break
             for key, pattern in instruction.expected_patterns.items():
                 if key in verified_values:
                     continue
@@ -75,15 +82,20 @@ class ComputerUseWorker:
                 if match:
                     verified_values[key] = match.group(0)
         missing = [key for key in instruction.expected_patterns if key not in verified_values]
-        success = not missing
+        success = failed_command is None and not missing
         session.metadata["last_transcript"] = "\n\n".join(transcript_parts)
+        failure_reason = None
+        if failed_command is not None:
+            failure_reason = f"Command failed with exit code {failed_exit_code}: {failed_command}"
+        elif missing:
+            failure_reason = f"Missing expected patterns: {', '.join(missing)}"
         return ComputerUseResult(
             task_id=instruction.task_id,
             success=success,
             observations=observations,
             verified_values=verified_values,
             raw_transcript="\n\n".join(transcript_parts),
-            failure_reason=None if success else f"Missing expected patterns: {', '.join(missing)}",
+            failure_reason=failure_reason,
         )
 
     @staticmethod

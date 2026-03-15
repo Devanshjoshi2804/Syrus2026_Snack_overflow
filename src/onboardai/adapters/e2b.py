@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import os
+import re
 import subprocess
 from datetime import datetime
 from abc import ABC, abstractmethod
@@ -35,10 +36,11 @@ class MockSandboxManager(SandboxManager):
             session_id="mock-sandbox",
             stream_url="https://example.invalid/mock-novnc",
             backend="mock",
-            metadata={"node_version": "v20.11.0", "pnpm_version": "8.15.0"},
+            metadata={"node_version": "v20.11.0", "pnpm_version": "8.15.0", "last_returncode": 0},
         )
 
     def run_command(self, session: SandboxSession, command: str) -> str:
+        session.metadata["last_returncode"] = 0
         lowered = command.lower()
         if "nvm install 20" in lowered:
             session.metadata["node_version"] = "v20.11.0"
@@ -121,6 +123,7 @@ class MockSandboxManager(SandboxManager):
 
     def open_url(self, session: SandboxSession, url: str) -> str:
         session.metadata["last_url"] = url
+        session.metadata["last_returncode"] = 0
         return f"Opened {url}"
 
 
@@ -216,6 +219,7 @@ class LocalShellSandboxManager(SandboxManager):
                 "last_transcript": "",
                 "last_url": "",
                 "last_artifacts": [],
+                "last_returncode": 0,
             },
         )
 
@@ -235,7 +239,8 @@ class LocalShellSandboxManager(SandboxManager):
         session.metadata["last_command"] = command
         session.metadata["last_output"] = output
         session.metadata["last_transcript"] = f"$ {command}\n{output}".strip()
-        self._update_current_dir(session, command, cwd)
+        session.metadata["last_returncode"] = result.returncode
+        self._update_current_dir(session, command, cwd, result.returncode)
         return output
 
     def screenshot(self, session: SandboxSession) -> bytes:
@@ -247,6 +252,7 @@ class LocalShellSandboxManager(SandboxManager):
         session.metadata["last_output"] = f"Opened {url} in the local browser"
         session.metadata["last_transcript"] = f"$ open {url}\nOpened {url} in the local browser"
         session.metadata["last_url"] = url
+        session.metadata["last_returncode"] = 0
         return f"Opened {url} in the local browser"
 
     def _session_env(self, session: SandboxSession) -> dict[str, str]:
@@ -289,12 +295,24 @@ class LocalShellSandboxManager(SandboxManager):
         return nvm_bootstrap + command
 
     @staticmethod
-    def _update_current_dir(session: SandboxSession, command: str, cwd: Path) -> None:
+    def _update_current_dir(
+        session: SandboxSession,
+        command: str,
+        cwd: Path,
+        returncode: int,
+    ) -> None:
+        if returncode != 0:
+            return
         stripped = command.strip()
         if stripped.startswith("cd "):
-            target = stripped[3:].strip().strip('"').strip("'")
-            next_dir = (cwd / target).resolve() if not Path(target).is_absolute() else Path(target).resolve()
-            session.metadata["current_dir"] = str(next_dir)
+            match = re.match(r"^cd\s+(.+?)(?:\s*(?:&&|\|\||;).*)?$", stripped)
+            if not match:
+                return
+            target = match.group(1).strip().strip('"').strip("'")
+            expanded = Path(target).expanduser()
+            next_dir = (cwd / expanded).resolve() if not expanded.is_absolute() else expanded.resolve()
+            if next_dir.exists() and next_dir.is_dir():
+                session.metadata["current_dir"] = str(next_dir)
 
 
 def build_sandbox_manager(config: AppConfig) -> SandboxManager:

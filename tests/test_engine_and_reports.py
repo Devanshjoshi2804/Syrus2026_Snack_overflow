@@ -84,6 +84,20 @@ def test_git_identity_instruction_queries_email_for_verification(project_root):
     assert "git_email" in instruction.expected_patterns
 
 
+def test_docker_instruction_targets_cloned_repo_workspace(project_root):
+    engine = OnboardingEngine(AppConfig(project_root=project_root))
+    state = engine.new_state()
+    engine.handle_message(
+        state,
+        "Hi, I'm Riya. I've joined as a Backend Intern working on Node.js.",
+    )
+    docker_task = next(task for task in state.task_plan if task.task_id == "BI-07")
+
+    instruction = engine._build_instruction(docker_task, state)
+
+    assert instruction.command_plan == ["cd 'connector-runtime-demo' && docker compose ps || true"]
+
+
 def test_backend_intern_guided_order_front_loads_engineering_setup(project_root):
     engine = OnboardingEngine(AppConfig(project_root=project_root))
     state = engine.new_state()

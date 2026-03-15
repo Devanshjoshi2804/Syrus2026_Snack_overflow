@@ -727,6 +727,7 @@ class OnboardingEngine:
                 ],
             )
         if "docker compose" in title:
+            repo_dir = repo_name.replace(".git", "") if repo_name else "connector-runtime-demo"
             return ComputerUseInstruction(
                 task_id=task.task_id,
                 goal=task.title,
@@ -734,7 +735,7 @@ class OnboardingEngine:
                 allowed_tools=["bash"],
                 expected_patterns={"compose_status": r"(Running|Up|Created|No containers|Mock executed)"},
                 command_plan=[
-                    f"cd '{self.config.project_root}' && docker compose ps || true",
+                    f"cd '{repo_dir}' && docker compose ps || true",
                 ],
             )
         if "starter ticket" in title and "pick up" in title:

@@ -72,8 +72,11 @@ class AppConfig(BaseModel):
     )
     jira_project_key: str = os.getenv("ONBOARDAI_JIRA_PROJECT_KEY", "FLOW")
     local_machine_root: Path = Path(
-        os.getenv("ONBOARDAI_LOCAL_MACHINE_ROOT", ".cache/local_machine")
-    ).resolve()
+        os.getenv(
+            "ONBOARDAI_LOCAL_MACHINE_ROOT",
+            str(Path.home() / ".cache" / "onboardai" / "local_machine"),
+        )
+    ).expanduser().resolve()
     outputs_dir: Path = Field(default_factory=lambda: Path("outputs/completion_reports").resolve())
 
     def model_post_init(self, __context) -> None:

@@ -117,3 +117,50 @@ def test_local_sandbox_does_not_append_mock_fallback_output(project_root):
     output = sandbox.run_command(session, "this-command-should-not-exist")
 
     assert "fallback simulated" not in output
+
+
+def test_local_sandbox_tracks_cd_prefix_with_follow_on_command(project_root):
+    config = AppConfig(project_root=project_root, sandbox_backend="local")
+    sandbox = LocalShellSandboxManager(config)
+    session = sandbox.start()
+
+    sandbox.run_command(session, "mkdir -p repo")
+    sandbox.run_command(session, "cd repo && pwd")
+
+    assert session.metadata["current_dir"].endswith("/repo")
+
+
+def test_local_sandbox_does_not_persist_cd_after_failed_chained_command(project_root):
+    config = AppConfig(project_root=project_root, sandbox_backend="local")
+    sandbox = LocalShellSandboxManager(config)
+    session = sandbox.start()
+    original_dir = session.metadata["current_dir"]
+
+    sandbox.run_command(session, "mkdir -p connector-runtime-demo")
+    sandbox.run_command(session, "cd connector-runtime-demo && pnpm install")
+
+    assert session.metadata["current_dir"] == original_dir
+
+
+def test_worker_fails_when_local_command_returns_non_zero(project_root):
+    config = AppConfig(project_root=project_root, sandbox_backend="local")
+    sandbox = LocalShellSandboxManager(config)
+    worker = ComputerUseWorker(config, sandbox, MockBrowserAdapter())
+    session = sandbox.start()
+
+    result = worker.execute(
+        ComputerUseInstruction(
+            task_id="BI-05",
+            goal="Clone and bootstrap repository",
+            success_criteria=["repository bootstrapped"],
+            expected_patterns={"repository": r"connector-runtime-demo"},
+            command_plan=[
+                "mkdir -p connector-runtime-demo",
+                "cd connector-runtime-demo && pnpm install",
+            ],
+        ),
+        session,
+    )
+
+    assert result.success is False
+    assert "exit code" in (result.failure_reason or "")
