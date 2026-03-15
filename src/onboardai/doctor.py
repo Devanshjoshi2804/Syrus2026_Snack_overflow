@@ -27,13 +27,28 @@ def collect_health() -> dict[str, str]:
     health["dataset_root"] = str(config.dataset_root)
     health["python"] = shutil.which("python3.11") or "missing"
     health["github_api"] = "configured" if config.github_token else "missing"
-    health["jira_api"] = "configured" if config.atlassian_api_token else "missing"
+    if config.atlassian_api_token and config.atlassian_email:
+        health["jira_api"] = "configured"
+    elif config.atlassian_api_token:
+        health["jira_api"] = "missing_email"
+    else:
+        health["jira_api"] = "missing"
+    if engine.github.is_available():
+        health["github_org"] = engine.github.org_slug
+        health["github_org_accessible"] = "yes" if engine.github.org_accessible() else "no"
+        repos = engine.github.accessible_repos(limit=10)
+        if repos:
+            health["github_visible_repos"] = ", ".join(repo.get("name", "?") for repo in repos[:6])
     if engine.jira.is_available():
+        health["jira_auth_mode"] = engine.jira.auth_mode()
         projects = engine.jira.accessible_projects()
         health["jira_projects_visible"] = str(len(projects))
         if projects:
             health["jira_project_keys"] = ", ".join(project.get("key", "?") for project in projects)
-        health["jira_flow_project"] = "yes" if engine.jira.project_exists(config.jira_project_key) else "no"
+        health["jira_configured_project_key"] = config.jira_project_key
+        health["jira_project_exists"] = "yes" if engine.jira.project_exists(config.jira_project_key) else "no"
+        if config.jira_project_key:
+            health["jira_resolved_project"] = engine.jira.resolve_project_key() or "none"
     health["docker_compose"] = "yes" if shutil.which("docker") else "no"
     health["qdrant_http"] = _http_status(f"{config.qdrant_url.rstrip('/')}/readyz")
     if shutil.which("docker"):

@@ -50,6 +50,8 @@ def record_verification(
         status=entry.status,
         detail=entry.details,
         timestamp=entry.timestamp.isoformat(timespec="seconds"),
+        artifacts=entry.artifacts.copy(),
+        transcript=entry.transcript,
     )
     state.dashboard_state.items = [
         dashboard_item
@@ -73,6 +75,7 @@ def mark_completed(
     details: str,
     verified_values: dict[str, str] | None = None,
     artifacts: list[str] | None = None,
+    transcript: str = "",
 ) -> None:
     task = set_task_status(state, task_id, TaskStatus.COMPLETED)
     if not task:
@@ -87,6 +90,7 @@ def mark_completed(
             details=details,
             verified_values=verified_values or {},
             artifacts=artifacts or [],
+            transcript=transcript,
             timestamp=datetime.utcnow(),
         ),
     )

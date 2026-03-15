@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import base64
+import os
 import subprocess
+from datetime import datetime
 from abc import ABC, abstractmethod
 from pathlib import Path
 
@@ -188,28 +190,116 @@ class RealE2BSandboxManager(SandboxManager):
 
 
 class LocalShellSandboxManager(SandboxManager):
+    def __init__(self, config: AppConfig) -> None:
+        self.config = config
+        self._fallback = MockSandboxManager()
+
     def start(self) -> SandboxSession:
-        return SandboxSession(session_id="local-shell", backend="local")
+        session_id = datetime.utcnow().strftime("local-%Y%m%dT%H%M%S")
+        session_root = self.config.local_machine_root / session_id
+        home_dir = session_root / "home"
+        work_dir = session_root / "work"
+        artifacts_dir = session_root / "artifacts"
+        for directory in (home_dir, work_dir, artifacts_dir):
+            directory.mkdir(parents=True, exist_ok=True)
+        return SandboxSession(
+            session_id=session_id,
+            backend="local",
+            metadata={
+                "session_root": str(session_root),
+                "home_dir": str(home_dir),
+                "work_dir": str(work_dir),
+                "current_dir": str(work_dir),
+                "artifacts_dir": str(artifacts_dir),
+                "last_command": "",
+                "last_output": "",
+                "last_transcript": "",
+                "last_url": "",
+                "last_artifacts": [],
+            },
+        )
 
     def run_command(self, session: SandboxSession, command: str) -> str:
+        env = self._session_env(session)
+        cwd = Path(session.metadata.get("current_dir") or session.metadata["work_dir"])
+        prepared_command = self._prepare_command(command, env)
         result = subprocess.run(
-            command,
-            shell=True,
+            ["bash", "-lc", prepared_command],
+            cwd=cwd,
+            env=env,
             check=False,
             capture_output=True,
             text=True,
         )
-        return f"{result.stdout}\n{result.stderr}".strip()
+        output = f"{result.stdout}\n{result.stderr}".strip()
+        session.metadata["last_command"] = command
+        session.metadata["last_output"] = output
+        session.metadata["last_transcript"] = f"$ {command}\n{output}".strip()
+        self._update_current_dir(session, command, cwd)
+        return output
 
     def screenshot(self, session: SandboxSession) -> bytes:
         return b""
 
     def open_url(self, session: SandboxSession, url: str) -> str:
         subprocess.run(["open", url], check=False)
-        return f"Opened {url}"
+        session.metadata["last_command"] = f"open {url}"
+        session.metadata["last_output"] = f"Opened {url} in the local browser"
+        session.metadata["last_transcript"] = f"$ open {url}\nOpened {url} in the local browser"
+        session.metadata["last_url"] = url
+        return f"Opened {url} in the local browser"
+
+    def _session_env(self, session: SandboxSession) -> dict[str, str]:
+        home_dir = Path(session.metadata["home_dir"])
+        env = os.environ.copy()
+        npm_prefix = home_dir / ".npm-global"
+        local_bin = home_dir / ".local" / "bin"
+        nvm_dir = home_dir / ".nvm"
+        npm_prefix.mkdir(parents=True, exist_ok=True)
+        (npm_prefix / "bin").mkdir(parents=True, exist_ok=True)
+        (npm_prefix / "lib").mkdir(parents=True, exist_ok=True)
+        local_bin.mkdir(parents=True, exist_ok=True)
+        nvm_dir.mkdir(parents=True, exist_ok=True)
+        env.update(
+            {
+                "HOME": str(home_dir),
+                "TERM": "xterm-256color",
+                "NVM_DIR": str(nvm_dir),
+                "NPM_CONFIG_PREFIX": str(npm_prefix),
+                "PYTHONUSERBASE": str(home_dir / ".pyuserbase"),
+                "PIP_CACHE_DIR": str(home_dir / ".cache" / "pip"),
+                "ONBOARDAI_LOCAL_MACHINE": "1",
+            }
+        )
+        path_parts = [
+            str(npm_prefix / "bin"),
+            str(local_bin),
+            env.get("PATH", ""),
+        ]
+        env["PATH"] = ":".join(part for part in path_parts if part)
+        return env
+
+    @staticmethod
+    def _prepare_command(command: str, env: dict[str, str]) -> str:
+        nvm_dir = env.get("NVM_DIR", "")
+        nvm_bootstrap = (
+            f'export NVM_DIR="{nvm_dir}"; '
+            f'if [ -s "{nvm_dir}/nvm.sh" ]; then . "{nvm_dir}/nvm.sh"; fi; '
+        )
+        return nvm_bootstrap + command
+
+    @staticmethod
+    def _update_current_dir(session: SandboxSession, command: str, cwd: Path) -> None:
+        stripped = command.strip()
+        if stripped.startswith("cd "):
+            target = stripped[3:].strip().strip('"').strip("'")
+            next_dir = (cwd / target).resolve() if not Path(target).is_absolute() else Path(target).resolve()
+            session.metadata["current_dir"] = str(next_dir)
 
 
 def build_sandbox_manager(config: AppConfig) -> SandboxManager:
+    if config.sandbox_backend == "local":
+        return LocalShellSandboxManager(config)
     if config.mode.value == "demo_real" and config.e2b_api_key:
         try:
             return RealE2BSandboxManager(config)

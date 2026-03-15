@@ -4,7 +4,7 @@ import json
 
 from onboardai.config import AppConfig
 from onboardai.graph import OnboardingEngine
-from onboardai.models import TaskPriority, TaskStatus
+from onboardai.models import CompletionKind, PersonaResolutionMode, TaskAction, TaskPriority, TaskStatus
 from onboardai.ui.dashboard import build_dashboard_props
 
 
@@ -65,7 +65,84 @@ def test_engine_uses_dataset_starter_ticket_for_repo_task(project_root):
     assert "connector-runtime-demo" in "\n".join(instruction.command_plan)
     first_task = next(task for task in state.task_plan if task.task_id == "BI-18")
     starter_instruction = engine._build_instruction(first_task, state)
-    assert starter_instruction.url and "FLOW-INTERN-001" in starter_instruction.url
+    assert starter_instruction.url
+    assert starter_instruction.url.endswith("/BTS-7") or "FLOW-INTERN-001" in starter_instruction.url
+
+
+def test_git_identity_instruction_queries_email_for_verification(project_root):
+    engine = OnboardingEngine(AppConfig(project_root=project_root))
+    state = engine.new_state()
+    engine.handle_message(
+        state,
+        "Hi, I'm Riya. I've joined as a Backend Intern working on Node.js.",
+    )
+    git_task = next(task for task in state.task_plan if task.task_id == "BI-SYNTH-GIT")
+
+    instruction = engine._build_instruction(git_task, state)
+
+    assert instruction.command_plan[-1] == "git config --global user.email"
+    assert "git_email" in instruction.expected_patterns
+
+
+def test_backend_intern_guided_order_front_loads_engineering_setup(project_root):
+    engine = OnboardingEngine(AppConfig(project_root=project_root))
+    state = engine.new_state()
+    engine.handle_message(
+        state,
+        "Hi, I'm Riya. I've joined as a Backend Intern working on Node.js.",
+    )
+    first_steps = [task.task_id for task in state.task_plan[:10]]
+    assert first_steps[:4] == ["C-01", "C-02", "C-03", "C-07"]
+    assert "BI-01" in first_steps
+    assert "BI-02" in first_steps
+    assert "BI-SYNTH-GIT" in first_steps
+    assert "C-14" not in first_steps
+
+
+def test_backend_intern_moves_from_access_to_node_setup(project_root):
+    engine = OnboardingEngine(AppConfig(project_root=project_root))
+    state = engine.new_state()
+    engine.handle_message(
+        state,
+        "Hi, I'm Riya. I've joined as a Backend Intern working on Node.js.",
+    )
+    for _ in range(4):
+        engine.task_action_router_node(state, TaskAction.SELF_COMPLETE)
+    assert state.current_task_id == "BI-01"
+
+
+def test_senior_frontend_uses_synthetic_overlay_guided_path(project_root):
+    engine = OnboardingEngine(AppConfig(project_root=project_root))
+    state = engine.new_state()
+    engine.handle_message(
+        state,
+        "Hi, I'm Asha. I've joined as a Senior Frontend Engineer working on React.",
+    )
+    assert state.matched_persona is not None
+    assert state.matched_persona.resolution_mode == PersonaResolutionMode.SYNTHETIC_ROLE_EXPERIENCE_OVERLAY
+    first_steps = [task.task_id for task in state.task_plan[:8]]
+    assert first_steps[:4] == ["C-01", "C-02", "C-03", "C-07"]
+    assert "JFR-09" in first_steps
+    assert "JFR-13" in first_steps
+    assert "SFE-DEPLOY" in first_steps
+
+
+def test_dashboard_guidance_for_node_setup_is_task_specific(project_root):
+    engine = OnboardingEngine(AppConfig(project_root=project_root))
+    state = engine.new_state()
+    engine.handle_message(
+        state,
+        "Hi, I'm Riya. I've joined as a Backend Intern working on Node.js.",
+    )
+    for _ in range(4):
+        engine.task_action_router_node(state, TaskAction.SELF_COMPLETE)
+    props = build_dashboard_props(state)
+    guided = props["guidedStep"]
+    assert props["currentTaskId"] == "BI-01"
+    assert "install Node.js 20" in guided["headline"]
+    assert any("node --version" in step for step in guided["what_to_do_now"])
+    help_text = engine.task_help_node(state, "i am stuck")
+    assert "Run agent for me" in help_text
 
 
 def test_manual_task_only_offers_self_complete_and_skip(project_root):
@@ -79,6 +156,25 @@ def test_manual_task_only_offers_self_complete_and_skip(project_root):
     assert "Watch agent do this" not in response
     assert "I did it myself / Skip" in response
     assert "manual step" in response
+
+
+def test_engineering_milestone_report_generation(project_root, tmp_path):
+    config = AppConfig(project_root=project_root, outputs_dir=tmp_path)
+    engine = OnboardingEngine(config)
+    state = engine.new_state()
+    engine.handle_message(
+        state,
+        "Hi, I'm Riya. I've joined as a Backend Intern working on Node.js.",
+    )
+    milestone_ids = {"C-01", "C-02", "C-03", "C-07", "BI-01", "BI-02", "BI-05", "BI-09", "BI-11", "BI-12", "BI-18"}
+    for task in state.task_plan:
+        if task.task_id in milestone_ids:
+            task.status = TaskStatus.COMPLETED
+    response = engine.email_generation_node(state, completion_kind=CompletionKind.ENGINEERING_MILESTONE)
+    assert "Generated engineering milestone artifacts" in response
+    milestone_json = next(tmp_path.glob("*_milestone.json"))
+    payload = json.loads(milestone_json.read_text(encoding="utf-8"))
+    assert payload["completion_kind"] == CompletionKind.ENGINEERING_MILESTONE.value
 
 
 def test_typed_manual_watch_returns_clear_explanation(project_root):

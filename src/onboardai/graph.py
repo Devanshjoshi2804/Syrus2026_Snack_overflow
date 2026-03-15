@@ -11,7 +11,7 @@ from onboardai.adapters.github import GitHubAdapter
 from onboardai.adapters.jira import JiraAdapter
 from onboardai.adapters.slack import SlackAdapter
 from onboardai.adapters.vector_store import build_vector_store
-from onboardai.checklist.planner import ChecklistPlanner
+from onboardai.checklist.planner import ACCESS_CORE_TASKS, ChecklistPlanner
 from onboardai.config import AppConfig, load_config
 from onboardai.content.parser import parse_contacts, parse_personas, parse_setup_guides
 from onboardai.content.registry import build_default_registry, validate_registry_files
@@ -21,15 +21,19 @@ from onboardai.llm_backend import LLMBackend, build_llm_backend
 from onboardai.local_llm import LocalResponder
 from onboardai.models import (
     AutomationMode,
+    CompletionKind,
     ComputerUseInstruction,
+    JourneyMode,
     OnboardingState,
     TaskAction,
+    TaskPhase,
     TaskPriority,
     TaskStatus,
 )
 from onboardai.persona.matcher import PersonaMatcher, extract_employee_profile
 from onboardai.rag.retriever import KnowledgeRetriever
 from onboardai.state import choose_next_task, get_current_task, mark_completed, mark_skipped, set_task_status
+from onboardai.ui.dashboard import build_dashboard_props
 
 
 QUESTION_PREFIXES = ("how", "what", "when", "where", "who", "why", "can", "do", "should")
@@ -45,6 +49,8 @@ HELP_PATTERNS = (
     "not sure",
     "dont know anything",
     "don't know anything",
+    "i am stuck",
+    "i'm stuck",
 )
 COMPLETION_HINTS = (
     "yes i have",
@@ -68,6 +74,16 @@ COMPLETION_HINTS = (
     "have my laptop",
     "received company laptop",
     "received the company laptop",
+    "gmail works",
+    "calendar works",
+    "drive works",
+    "slack is joined",
+    "joined slack",
+    "node is installed",
+    "pnpm is installed",
+    "repo cloned",
+    "repository cloned",
+    "github invite accepted",
 )
 TYPED_ACTION_PHRASES = {
     TaskAction.WATCH_AGENT: {
@@ -80,6 +96,7 @@ TYPED_ACTION_PHRASES = {
         "do this for me",
         "do it for me",
         "run it for me",
+        "run agent for me",
     },
     TaskAction.SELF_COMPLETE: {
         "i did it myself",
@@ -91,6 +108,10 @@ TYPED_ACTION_PHRASES = {
         "yes mark it done",
         "complete this",
         "i finished this",
+        "i activated it",
+        "i joined slack",
+        "i have the laptop",
+        "i finished this step",
     },
     TaskAction.SKIP: {
         "skip",
@@ -127,12 +148,15 @@ class OnboardingEngine:
         )
         self.local_responder = LocalResponder(self.config)
         self.contacts = parse_contacts(self.config.dataset_root / "org_structure.md")
-        self.github = GitHubAdapter()
+        self.github = GitHubAdapter(self.config)
         self.slack = SlackAdapter()
-        self.jira = JiraAdapter()
+        self.jira = JiraAdapter(self.config)
 
     def new_state(self) -> OnboardingState:
-        state = OnboardingState(completion_status="in_progress")
+        state = OnboardingState(
+            completion_status="in_progress",
+            journey_mode=self.config.journey_mode,
+        )
         state.sandbox_session = self.sandbox_manager.start()
         state.dashboard_state.stream_url = state.sandbox_session.stream_url
         state.dashboard_state.health = self.runtime_health()
@@ -146,15 +170,22 @@ class OnboardingEngine:
         if not state.employee_profile:
             raise ValueError("Employee profile must be set before persona matching.")
         state.matched_persona = self.matcher.match(state.employee_profile)
-        state.task_plan = self.planner.build_plan(state.employee_profile, state.matched_persona)
+        state.task_plan = self.planner.build_plan(
+            state.employee_profile,
+            state.matched_persona,
+            journey_mode=state.journey_mode,
+        )
         state.selected_starter_ticket = self._starter_ticket_for_state(state)
         choose_next_task(state)
         state.completion_status = "in_progress"
         match = state.matched_persona
         current_task = get_current_task(state)
+        persona_line = match.persona.title
+        if match.resolution_mode.value == "synthetic_role_experience_overlay":
+            persona_line = f"{persona_line} (synthetic seniority overlay)"
         return (
             f"Welcome {state.employee_profile.name}. "
-            f"You're onboarding as {match.persona.title}. "
+            f"You're onboarding as {persona_line}. "
             f"We're starting with Step 1: `{current_task.task_id}` {current_task.title}. "
             "Look at the workspace card for the exact walkthrough and use its buttons instead of guessing commands. "
             "If you already have the laptop, click **I have the laptop** or say `i have the laptop`."
@@ -164,7 +195,7 @@ class OnboardingEngine:
         task = get_current_task(state) or choose_next_task(state)
         if not task:
             return self.email_generation_node(state)
-        hits = self.retriever.query(task.title, profile=state.employee_profile, limit=2)
+        hits = self.retriever.query_for_task(task, profile=state.employee_profile, limit=2)
         state.knowledge_hits = hits
         citations = "\n".join(
             f"- {Path(hit.chunk.source_path).name}: {hit.chunk.title}"
@@ -178,16 +209,18 @@ class OnboardingEngine:
             or task.category.lower() == "first task"
             or "git workflow" in task.title.lower()
         ):
+            tracking_url = self.jira.resolve_tracking_url(starter_ticket) or starter_ticket.get("Tracking URL", "N/A")
             starter_context = (
                 f"\nStarter ticket context:\n"
                 f"- Ticket: {starter_ticket.get('Ticket ID', 'N/A')}\n"
                 f"- Repo: {starter_ticket.get('Repo URL', 'N/A')}\n"
-                f"- Tracking: {starter_ticket.get('Tracking URL', 'N/A')}\n"
+                f"- Tracking: {tracking_url}\n"
             )
         actions_line = self._actions_line(task)
         return (
             f"Current task: `{task.task_id}` {task.title}\n"
             f"Category: {task.category}\n"
+            f"Phase: {task.display_phase.value}\n"
             f"Priority: {task.priority.value}\n"
             f"Automation: {task.automation_mode.value}\n"
             f"Evidence: {evidence}\n\n"
@@ -248,23 +281,35 @@ class OnboardingEngine:
             set_task_status(state, task.task_id, TaskStatus.IN_PROGRESS)
             result = self.computer_use_dispatch_node(state)
             if result.success:
-                detail = ", ".join(f"{key}={value}" for key, value in result.verified_values.items())
-                mark_completed(state, task.task_id, "agent", detail or "Agent completed task.", artifacts=result.artifacts, verified_values=result.verified_values)
+                detail = self._summarize_agent_result(result)
+                mark_completed(
+                    state,
+                    task.task_id,
+                    "agent",
+                    detail or "Agent completed task.",
+                    artifacts=result.artifacts,
+                    verified_values=result.verified_values,
+                    transcript=result.raw_transcript,
+                )
                 resolution_line = f"Agent completed `{task.task_id}` {task.title}."
             else:
                 set_task_status(state, task.task_id, TaskStatus.BLOCKED)
                 return f"Task blocked: {result.failure_reason}\n\n{self._chat_current_task_summary(state)}"
         choose_next_task(state)
+        milestone_line = ""
+        if self._ready_for_engineering_milestone(state):
+            milestone_line = self._ensure_engineering_milestone(state)
         if self._ready_for_completion_email(state):
             return self.email_generation_node(state)
         next_task = get_current_task(state)
         if not next_task:
-            return resolution_line
+            return f"{resolution_line}\n\n{milestone_line}".strip()
         return (
             f"{resolution_line}\n\n"
+            f"{milestone_line}\n\n"
             f"Next step: `{next_task.task_id}` {next_task.title}. "
             "I updated the workspace with the next walkthrough and actions."
-        )
+        ).strip()
 
     def computer_use_dispatch_node(self, state: OnboardingState):
         task = get_current_task(state)
@@ -273,15 +318,39 @@ class OnboardingEngine:
         instruction = self._build_instruction(task, state)
         return self.worker.execute(instruction, state.sandbox_session)
 
-    def email_generation_node(self, state: OnboardingState) -> str:
+    def email_generation_node(
+        self,
+        state: OnboardingState,
+        completion_kind: CompletionKind = CompletionKind.FINAL_HR_COMPLETION,
+    ) -> str:
         starter_ticket = self._starter_ticket_for_state(state)
-        html_path, json_path = self.email_generator.generate(state, starter_ticket=starter_ticket)
-        state.completion_status = "completed"
+        html_path, json_path = self.email_generator.generate(
+            state,
+            starter_ticket=starter_ticket,
+            completion_kind=completion_kind,
+        )
+        if completion_kind not in state.generated_completion_kinds:
+            state.generated_completion_kinds.append(completion_kind)
+        if completion_kind == CompletionKind.FINAL_HR_COMPLETION:
+            state.completion_status = "completed"
+        else:
+            if "engineering_milestone" not in state.milestones_completed:
+                state.milestones_completed.append("engineering_milestone")
+        label = (
+            "Generated engineering milestone artifacts."
+            if completion_kind == CompletionKind.ENGINEERING_MILESTONE
+            else "Generated HR completion artifacts."
+        )
+        summary = self.email_generator.build_summary(
+            state,
+            starter_ticket,
+            completion_kind=completion_kind,
+        )
         return (
-            "Generated HR completion artifacts.\n"
+            f"{label}\n"
             f"- HTML report: {html_path}\n"
             f"- JSON summary: {json_path}\n"
-            f"- Score: {self.email_generator.build_summary(state, starter_ticket).score}%"
+            f"- Score: {summary.score}%"
         )
 
     def handle_message(self, state: OnboardingState, message: str) -> str:
@@ -289,6 +358,12 @@ class OnboardingEngine:
         if not state.employee_profile:
             return self.intake_node(state, stripped)
         lowered = stripped.lower()
+        if lowered in {"show full checklist", "show checklist"}:
+            state.show_full_checklist = True
+            return "Opened the full checklist in the sidebar. You can keep following the guided workspace for the current step."
+        if lowered in {"hide full checklist", "hide checklist"}:
+            state.show_full_checklist = False
+            return "Switched the sidebar back to compact guided mode."
         typed_action = self._parse_typed_action(stripped)
         if typed_action is not None:
             reason = None
@@ -299,6 +374,8 @@ class OnboardingEngine:
             return self.task_action_router_node(state, typed_action, reason)
         if self._looks_like_completion_confirmation(state, lowered):
             return self.task_action_router_node(state, TaskAction.SELF_COMPLETE, "Completed from conversation.")
+        if "why am i doing this" in lowered or "why this matters" in lowered:
+            return self.task_why_node(state)
         if self._looks_like_help_request(lowered):
             return self.task_help_node(state, stripped)
         if stripped.endswith("?") or lowered.startswith(QUESTION_PREFIXES):
@@ -314,34 +391,42 @@ class OnboardingEngine:
         task = get_current_task(state) or choose_next_task(state)
         if not task:
             return "There is no active task right now."
-        title = task.title.lower()
-        if "laptop" in title:
-            return (
-                "For this step, you only need to confirm that you physically received the company laptop, "
-                "charger, and can turn it on. There is no technical setup yet. "
-                "If you already have it, click **I have the laptop** in the workspace or say `i have the laptop`."
-            )
-        if "google workspace" in title:
-            return (
-                "This step is manual. Open your NovaByte welcome email, accept the Google Workspace invite, "
-                "sign in once, and make sure Gmail, Calendar, and Drive all open. "
-                "When they do, click **I activated it** in the workspace."
-            )
-        if "slack" in title:
-            return (
-                "This step can be agent-assisted. In the workspace, use **Run agent for me** to automate it, "
-                "or open Slack yourself, join the required channels, and then click **I joined Slack**."
-            )
-        hits = self.retriever.query(f"{task.title}\n{message}", profile=state.employee_profile, limit=2)
-        if hits:
-            excerpt = hits[0].chunk.text.strip().split("\n", 1)[-1][:260].strip()
-            return (
-                f"For `{task.task_id}` {task.title}: {excerpt}\n\n"
-                "If you want, say `let agent do it` when the task is agent-runnable, or `mark it done` after you finish it."
-            )
+        state.knowledge_hits = self.retriever.query_for_task(
+            task,
+            profile=state.employee_profile,
+            message=message,
+            limit=2,
+        )
+        guided = build_dashboard_props(state).get("guidedStep", {})
+        steps = guided.get("what_to_do_now") or []
+        sources = guided.get("source_citations") or []
+        lines = [
+            f"For `{task.task_id}` {task.title}:",
+            guided.get("summary") or "Follow the current task carefully and resolve it when the success criteria are met.",
+        ]
+        if steps:
+            lines.append("")
+            lines.append("Do this now:")
+            lines.extend(f"{index}. {step}" for index, step in enumerate(steps, start=1))
+        if guided.get("fastest_path"):
+            lines.append("")
+            lines.append(f"Fastest path: {guided['fastest_path']}")
+        if guided.get("why_it_matters"):
+            lines.append(f"Why it matters: {guided['why_it_matters']}")
+        if sources:
+            lines.append(f"Sources: {'; '.join(sources)}")
+        return "\n".join(lines)
+
+    def task_why_node(self, state: OnboardingState) -> str:
+        task = get_current_task(state) or choose_next_task(state)
+        if not task:
+            return "There is no active task right now."
+        hits = self.retriever.query_for_task(task, profile=state.employee_profile, limit=2)
+        state.knowledge_hits = hits
+        source = f"{Path(hits[0].chunk.source_path).name} -> {hits[0].chunk.title}" if hits else "the onboarding knowledge base"
         return (
-            f"For `{task.task_id}` {task.title}, follow the guidance in the workspace panel and then mark it done. "
-            "If you are stuck, ask a direct question like `how do I do this step?`."
+            f"`{task.task_id}` matters because it unlocks the next part of your onboarding and reduces the chance of missing access or engineering setup dependencies. "
+            f"This explanation is grounded in {source}."
         )
 
     def serialize_dashboard(self, state: OnboardingState) -> str:
@@ -357,14 +442,31 @@ class OnboardingEngine:
 
     def runtime_health(self) -> dict[str, str]:
         vector_health = self.retriever.vector_store.healthcheck()
+        github_status = "configured" if self.github.is_available() else "missing"
+        if self.config.atlassian_api_token and self.config.atlassian_email:
+            jira_status = "configured"
+        elif self.config.atlassian_api_token:
+            jira_status = "needs_email"
+        else:
+            jira_status = "missing"
+        if self.github.is_available():
+            github_status = "reachable" if self.github.org_accessible() else "blocked"
+        jira_project = None
+        if self.jira.is_available():
+            jira_project = self.jira.resolve_project_key()
+            jira_status = f"project:{jira_project}" if jira_project else "blocked"
         return {
             "mode": self.config.mode.value,
+            "journey_mode": self.config.journey_mode.value,
             "vector_backend": vector_health.get("backend", "unknown"),
             "browser_backend": self.config.browser_backend,
             "browser_impl": self.browser_adapter.__class__.__name__,
             "browser_ready": "yes" if self.browser_adapter.is_available() else "no",
             "docker": "yes" if shutil.which("docker") else "no",
             "sandbox_backend": self.sandbox_manager.__class__.__name__,
+            "github": github_status,
+            "jira": jira_status,
+            "slack_workspace_url": self.config.slack_workspace_url,
         }
 
     def available_actions(self, state: OnboardingState) -> list[TaskAction]:
@@ -393,12 +495,55 @@ class OnboardingEngine:
             for task in required_tasks
         )
 
+    def _ready_for_engineering_milestone(self, state: OnboardingState) -> bool:
+        if CompletionKind.ENGINEERING_MILESTONE in state.generated_completion_kinds:
+            return False
+        completed = [task for task in state.task_plan if task.status == TaskStatus.COMPLETED]
+        completed_ids = {task.task_id for task in completed}
+        access_ready = ACCESS_CORE_TASKS.issubset(completed_ids.intersection(ACCESS_CORE_TASKS))
+        milestone_tags = [task.milestone_tag for task in completed if task.milestone_tag]
+        docs_count = sum(tag == "docs" for tag in milestone_tags)
+        return all(
+            [
+                access_ready,
+                "environment" in milestone_tags,
+                "repo" in milestone_tags,
+                "service" in milestone_tags,
+                docs_count >= 2,
+                "starter" in milestone_tags,
+            ]
+        )
+
+    def _ensure_engineering_milestone(self, state: OnboardingState) -> str:
+        if not self._ready_for_engineering_milestone(state):
+            return ""
+        return self.email_generation_node(state, completion_kind=CompletionKind.ENGINEERING_MILESTONE)
+
     def _starter_ticket_for_state(self, state: OnboardingState) -> dict[str, str] | None:
-        if state.selected_starter_ticket:
+        if state.selected_starter_ticket and (
+            "Resolved Tracking URL" in state.selected_starter_ticket
+            or not self.jira.is_available()
+        ):
             return state.selected_starter_ticket
-        if state.matched_persona:
-            return self.planner.pick_starter_ticket(state.matched_persona)
-        return None
+        ticket = state.selected_starter_ticket
+        if ticket is None and state.matched_persona:
+            ticket = self.planner.pick_starter_ticket(state.matched_persona)
+        if not ticket:
+            return None
+        hydrated = dict(ticket)
+        if self.jira.is_available():
+            resolved_project = self.jira.resolve_project_key()
+            resolved_issue = self.jira.resolve_issue_key(hydrated)
+            resolved_url = self.jira.resolve_tracking_url(hydrated)
+            if resolved_project:
+                hydrated["Resolved Project Key"] = resolved_project
+            if resolved_issue:
+                hydrated["Resolved Ticket ID"] = resolved_issue
+            if resolved_url:
+                hydrated["Resolved Tracking URL"] = resolved_url
+        state.selected_starter_ticket = hydrated
+        return hydrated
+        
 
     def _actions_line(self, task) -> str:
         available = self._available_actions_for_task(task)
@@ -445,6 +590,18 @@ class OnboardingEngine:
             token in normalized for token in ("received", "have", "got")
         ):
             return True
+        if "google workspace" in task.title.lower() and any(
+            token in normalized for token in ("gmail", "calendar", "drive", "activated")
+        ):
+            return True
+        if "slack" in task.title.lower() and "slack" in normalized and any(
+            token in normalized for token in ("joined", "works", "done")
+        ):
+            return True
+        if "node.js" in task.title.lower() and "node" in normalized and "installed" in normalized:
+            return True
+        if "clone" in task.title.lower() and any(token in normalized for token in ("cloned", "copied", "checked out")):
+            return True
         return False
 
     def _chat_current_task_summary(self, state: OnboardingState) -> str:
@@ -458,7 +615,7 @@ class OnboardingEngine:
         }
         actions = ", ".join(action_labels[action] for action in self._available_actions_for_task(task))
         return (
-            f"Current step: `{task.task_id}` {task.title}. "
+            f"Current step: `{task.task_id}` {task.title} ({task.display_phase.value}). "
             f"Available actions: {actions}. "
             "The workspace card has the walkthrough, the buttons, and the next steps."
         )
@@ -469,6 +626,20 @@ class OnboardingEngine:
             if normalized in phrases:
                 return action
         return None
+
+    @staticmethod
+    def _summarize_agent_result(result) -> str:
+        if result.verified_values:
+            pairs = [f"{key}={value}" for key, value in result.verified_values.items()]
+            if result.observations:
+                pairs.append(result.observations[0])
+            return " | ".join(pairs)
+        if result.observations:
+            return "; ".join(result.observations[:2])
+        if result.raw_transcript:
+            lines = [line.strip() for line in result.raw_transcript.splitlines() if line.strip()]
+            return lines[-1][:220] if lines else "Agent completed task."
+        return "Agent completed task."
 
     def _build_instruction(self, task, state: OnboardingState) -> ComputerUseInstruction:
         title = task.title.lower()
@@ -521,9 +692,25 @@ class OnboardingEngine:
             )
         starter_ticket = self._starter_ticket_for_state(state) or {}
         repo_url = starter_ticket.get("Repo URL")
-        tracking_url = starter_ticket.get("Tracking URL")
+        tracking_url = self.jira.resolve_tracking_url(starter_ticket) or starter_ticket.get("Tracking URL")
         ticket_id = starter_ticket.get("Ticket ID", "FLOW-DEMO-001")
         repo_name = starter_ticket.get("Repo", "demo-repo")
+        if "github organization invite" in title:
+            return ComputerUseInstruction(
+                task_id=task.task_id,
+                goal=task.title,
+                success_criteria=["GitHub org page opened"],
+                allowed_tools=["browser"],
+                url=self.config.github_org_url,
+            )
+        if "jira workspace invite" in title:
+            return ComputerUseInstruction(
+                task_id=task.task_id,
+                goal=task.title,
+                success_criteria=["Jira workspace opened"],
+                allowed_tools=["browser"],
+                url=self.config.jira_url,
+            )
         if "clone assigned repository" in title or "clone connector-runtime" in title:
             clone_url = repo_url or f"{self.config.github_org_url}/{repo_name}"
             expected_repo_name = repo_name.replace(".git", "")
@@ -534,9 +721,9 @@ class OnboardingEngine:
                 allowed_tools=["bash"],
                 expected_patterns={"repository": re.escape(expected_repo_name)},
                 command_plan=[
-                    f"rm -rf /tmp/{expected_repo_name}",
-                    f"git clone {clone_url} /tmp/{expected_repo_name}",
-                    f"ls /tmp/{expected_repo_name}",
+                    f"rm -rf '{expected_repo_name}'",
+                    f"git clone {clone_url} '{expected_repo_name}'",
+                    f"ls '{expected_repo_name}'",
                 ],
             )
         if "docker compose" in title:
@@ -576,10 +763,10 @@ class OnboardingEngine:
                 allowed_tools=["bash"],
                 expected_patterns={"branch": re.escape(branch_name)},
                 command_plan=[
-                    "rm -rf /tmp/onboardai-git-practice",
-                    "mkdir -p /tmp/onboardai-git-practice && cd /tmp/onboardai-git-practice && git init",
-                    f"cd /tmp/onboardai-git-practice && git checkout -b {branch_name}",
-                    "cd /tmp/onboardai-git-practice && git branch --show-current",
+                    "rm -rf onboardai-git-practice",
+                    "mkdir -p onboardai-git-practice && cd onboardai-git-practice && git init",
+                    f"cd onboardai-git-practice && git checkout -b {branch_name}",
+                    "cd onboardai-git-practice && git branch --show-current",
                 ],
             )
         if task.automation_mode == AutomationMode.AGENT_BROWSER:
@@ -744,6 +931,11 @@ class OnboardingEngine:
                 if any(token in command.lower() for token in ("pnpm dev", "uvicorn", "storybook"))
             ]
             filtered = narrowed or commands
+        elif "git" in title and "config" in title:
+            has_email_set = any("git config --global user.email " in command.lower() for command in commands)
+            has_email_read = any(command.strip().lower() == "git config --global user.email" for command in commands)
+            if has_email_set and not has_email_read:
+                filtered = [*commands, "git config --global user.email"]
 
         starter_ticket = self._starter_ticket_for_state(state) or {}
         repo_url = starter_ticket.get("Repo URL")
@@ -788,6 +980,8 @@ class OnboardingEngine:
             starter_ticket = self._starter_ticket_for_state(state) or {}
             repo_name = starter_ticket.get("Repo", "demo-repo").replace(".git", "")
             patterns["repository"] = re.escape(repo_name)
+        if any(token in combined for token in ("pnpm dev", "uvicorn", "pnpm storybook")):
+            patterns["service_ready"] = r"(?i)(local:|ready in|uvicorn running|storybook|running at)"
         return patterns
 
     def _full_stack_clone_instruction(

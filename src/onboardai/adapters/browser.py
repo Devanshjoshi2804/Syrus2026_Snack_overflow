@@ -19,10 +19,10 @@ class BrowserAdapter(ABC):
 
 class MockBrowserAdapter(BrowserAdapter):
     def is_available(self) -> bool:
-        return True
+        return False
 
     def open_url(self, url: str) -> tuple[str, list[str]]:
-        return (f"Mock browser opened {url}", [])
+        return (f"Opened {url}", [])
 
 
 class PlaywrightBrowserAdapter(BrowserAdapter):

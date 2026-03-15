@@ -41,6 +41,7 @@ class ComputerUseWorker:
             else:
                 observation = self.sandbox_manager.open_url(session, instruction.url)
                 artifacts = []
+            self._record_browser_activity(session, instruction.url, observation, artifacts)
             return ComputerUseResult(
                 task_id=instruction.task_id,
                 success=True,
@@ -75,6 +76,7 @@ class ComputerUseWorker:
                     verified_values[key] = match.group(0)
         missing = [key for key in instruction.expected_patterns if key not in verified_values]
         success = not missing
+        session.metadata["last_transcript"] = "\n\n".join(transcript_parts)
         return ComputerUseResult(
             task_id=instruction.task_id,
             success=success,
@@ -83,6 +85,19 @@ class ComputerUseWorker:
             raw_transcript="\n\n".join(transcript_parts),
             failure_reason=None if success else f"Missing expected patterns: {', '.join(missing)}",
         )
+
+    @staticmethod
+    def _record_browser_activity(
+        session: SandboxSession,
+        url: str,
+        observation: str,
+        artifacts: list[str],
+    ) -> None:
+        session.metadata["last_url"] = url
+        session.metadata["last_command"] = f"open {url}"
+        session.metadata["last_output"] = observation
+        session.metadata["last_transcript"] = f"$ open {url}\n{observation}"
+        session.metadata["last_artifacts"] = artifacts
 
 
 class AgenticComputerUseWorker:
@@ -126,6 +141,7 @@ class AgenticComputerUseWorker:
                 url = arguments.get("url", "")
                 if self.browser_adapter.is_available():
                     observation, _artifacts = self.browser_adapter.open_url(url)
+                    ComputerUseWorker._record_browser_activity(session, url, observation, _artifacts)
                     return observation
                 return self.sandbox_manager.open_url(session, url)
             return f"Unknown tool: {tool_name}"

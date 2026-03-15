@@ -12,6 +12,11 @@ class RunMode(str, Enum):
     DEMO_REAL = "demo_real"
 
 
+class JourneyMode(str, Enum):
+    GUIDED_PRODUCTIVITY_FIRST = "guided_productivity_first"
+    FULL_CHECKLIST = "full_checklist"
+
+
 class VectorBackend(str, Enum):
     MEMORY = "memory"
     EMBEDDED_QDRANT = "embedded_qdrant"
@@ -46,6 +51,13 @@ class AutomationMode(str, Enum):
     MANUAL_EXTERNAL = "manual_external"
 
 
+class TaskPhase(str, Enum):
+    GET_ACCESS = "get_access"
+    GET_CODING = "get_coding"
+    LEARN_SYSTEM = "learn_system"
+    ADMIN_COMPLIANCE = "admin_compliance"
+
+
 class TaskAction(str, Enum):
     WATCH_AGENT = "watch_agent"
     SELF_COMPLETE = "self_complete"
@@ -56,6 +68,16 @@ class ContentTier(str, Enum):
     RAG = "rag"
     LOGIC = "logic"
     TEMPLATE = "template"
+
+
+class PersonaResolutionMode(str, Enum):
+    EXACT_DATASET_PERSONA = "exact_dataset_persona"
+    SYNTHETIC_ROLE_EXPERIENCE_OVERLAY = "synthetic_role_experience_overlay"
+
+
+class CompletionKind(str, Enum):
+    ENGINEERING_MILESTONE = "engineering_milestone"
+    FINAL_HR_COMPLETION = "final_hr_completion"
 
 
 class EmployeeProfile(BaseModel):
@@ -99,6 +121,9 @@ class PersonaMatch(BaseModel):
     score: float
     reasons: list[str] = Field(default_factory=list)
     persona: PersonaDefinition
+    resolution_mode: PersonaResolutionMode = PersonaResolutionMode.EXACT_DATASET_PERSONA
+    base_role_persona_id: str | None = None
+    experience_overlay: str | None = None
 
 
 class ChecklistTask(BaseModel):
@@ -113,6 +138,14 @@ class ChecklistTask(BaseModel):
     status: TaskStatus = TaskStatus.NOT_STARTED
     evidence_required: list[str] = Field(default_factory=list)
     notes: str | None = None
+    canonical_order: int = 0
+    display_phase: TaskPhase = TaskPhase.GET_ACCESS
+    display_rank: int = 0
+    blocking_dependencies: list[str] = Field(default_factory=list)
+    show_in_guided_path: bool = True
+    milestone_tag: str | None = None
+    role_relevance: list[str] = Field(default_factory=list)
+    experience_relevance: list[str] = Field(default_factory=list)
 
 
 class VerificationEntry(BaseModel):
@@ -124,6 +157,7 @@ class VerificationEntry(BaseModel):
     timestamp: datetime = Field(default_factory=datetime.utcnow)
     artifacts: list[str] = Field(default_factory=list)
     verified_values: dict[str, Any] = Field(default_factory=dict)
+    transcript: str = ""
 
 
 class DashboardItem(BaseModel):
@@ -132,6 +166,8 @@ class DashboardItem(BaseModel):
     status: TaskStatus
     detail: str = ""
     timestamp: str | None = None
+    artifacts: list[str] = Field(default_factory=list)
+    transcript: str = ""
 
 
 class DashboardState(BaseModel):
@@ -141,6 +177,20 @@ class DashboardState(BaseModel):
     items: list[DashboardItem] = Field(default_factory=list)
     latest_screenshot_artifact: str | None = None
     health: dict[str, str] = Field(default_factory=dict)
+
+
+class GuidedStepView(BaseModel):
+    headline: str
+    summary: str
+    what_to_do_now: list[str] = Field(default_factory=list)
+    fastest_path: str | None = None
+    why_it_matters: str | None = None
+    source_citations: list[str] = Field(default_factory=list)
+    proof_status: str | None = None
+    primary_actions: list[str] = Field(default_factory=list)
+    upcoming_steps: list[str] = Field(default_factory=list)
+    agent_available: bool = False
+    agent_fallback_message: str | None = None
 
 
 class KnowledgeChunk(BaseModel):
@@ -214,6 +264,12 @@ class CompletionSummary(BaseModel):
     verification_log: list[VerificationEntry] = Field(default_factory=list)
     score: int = 0
     notes: str = ""
+    completion_kind: CompletionKind = CompletionKind.FINAL_HR_COMPLETION
+    milestones_completed: list[str] = Field(default_factory=list)
+    current_phase: TaskPhase | None = None
+    starter_ticket: dict[str, str] | None = None
+    environment_verification: dict[str, str] = Field(default_factory=dict)
+    citations_used: list[str] = Field(default_factory=list)
 
 
 class ContentFile(BaseModel):
@@ -244,3 +300,7 @@ class OnboardingState(BaseModel):
     knowledge_hits: list[SearchHit] = Field(default_factory=list)
     pending_reason: str | None = None
     selected_starter_ticket: dict[str, str] | None = None
+    journey_mode: JourneyMode = JourneyMode.GUIDED_PRODUCTIVITY_FIRST
+    milestones_completed: list[str] = Field(default_factory=list)
+    generated_completion_kinds: list[CompletionKind] = Field(default_factory=list)
+    show_full_checklist: bool = False

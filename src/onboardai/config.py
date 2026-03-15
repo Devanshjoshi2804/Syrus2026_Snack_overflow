@@ -6,7 +6,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 from pydantic import BaseModel, Field
 
-from onboardai.models import EmbeddingBackend, RunMode, VectorBackend
+from onboardai.models import EmbeddingBackend, JourneyMode, RunMode, VectorBackend
 
 
 load_dotenv()
@@ -30,6 +30,10 @@ def detect_dataset_root(project_root: Path) -> Path:
 
 class AppConfig(BaseModel):
     mode: RunMode = RunMode(os.getenv("ONBOARDAI_MODE", RunMode.DEV_MOCK))
+    journey_mode: JourneyMode = JourneyMode(
+        os.getenv("ONBOARDAI_JOURNEY_MODE", JourneyMode.GUIDED_PRODUCTIVITY_FIRST)
+    )
+    sandbox_backend: str = os.getenv("ONBOARDAI_SANDBOX_BACKEND", "mock")
     project_root: Path = Path(os.getenv("ONBOARDAI_PROJECT_ROOT", ".")).resolve()
     dataset_root: Path | None = None
     vector_backend: VectorBackend = VectorBackend(
@@ -61,11 +65,15 @@ class AppConfig(BaseModel):
         "ONBOARDAI_SLACK_WORKSPACE_URL", "https://novabyte-demo.slack.com"
     )
     jira_url: str = os.getenv("ONBOARDAI_JIRA_URL", "https://novabytetechnologies.atlassian.net")
+    atlassian_email: str | None = os.getenv("ONBOARDAI_ATLASSIAN_EMAIL")
     atlassian_api_token: str | None = os.getenv("ONBOARDAI_ATLASSIAN_API_TOKEN")
     atlassian_cloud_id: str | None = os.getenv(
         "ONBOARDAI_ATLASSIAN_CLOUD_ID", "3bb1f4f8-ab91-436b-a8a7-4be6ee1a0611"
     )
     jira_project_key: str = os.getenv("ONBOARDAI_JIRA_PROJECT_KEY", "FLOW")
+    local_machine_root: Path = Path(
+        os.getenv("ONBOARDAI_LOCAL_MACHINE_ROOT", ".cache/local_machine")
+    ).resolve()
     outputs_dir: Path = Field(default_factory=lambda: Path("outputs/completion_reports").resolve())
 
     def model_post_init(self, __context) -> None:
@@ -84,6 +92,7 @@ class AppConfig(BaseModel):
 
     def ensure_directories(self) -> None:
         self.qdrant_path.mkdir(parents=True, exist_ok=True)
+        self.local_machine_root.mkdir(parents=True, exist_ok=True)
         self.outputs_dir.mkdir(parents=True, exist_ok=True)
 
 

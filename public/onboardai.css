@@ -1,8 +1,15 @@
+html,
+body,
+#root {
+  min-height: 100%;
+}
+
 body {
   background:
-    radial-gradient(circle at top left, rgba(251, 146, 60, 0.08), transparent 28%),
-    radial-gradient(circle at top right, rgba(34, 211, 238, 0.07), transparent 24%),
-    #0b1120;
+    radial-gradient(circle at top left, rgba(251, 146, 60, 0.12), transparent 26%),
+    radial-gradient(circle at top right, rgba(34, 211, 238, 0.1), transparent 22%),
+    linear-gradient(180deg, #09111d 0%, #0d1526 100%);
+  color: #e5edf5;
 }
 
 img,
@@ -10,7 +17,34 @@ iframe {
   max-width: 100%;
 }
 
+a {
+  color: #fb923c;
+}
+
+a:hover {
+  color: #fdba74;
+}
+
 code,
 pre {
   border-radius: 12px;
+  background: rgba(15, 23, 42, 0.76);
+}
+
+main {
+  max-width: 1680px;
+  margin: 0 auto;
+}
+
+aside {
+  min-width: 360px;
+  max-width: 380px;
+  backdrop-filter: blur(16px);
+}
+
+@media (max-width: 1279px) {
+  aside {
+    min-width: 320px;
+    max-width: 340px;
+  }
 }

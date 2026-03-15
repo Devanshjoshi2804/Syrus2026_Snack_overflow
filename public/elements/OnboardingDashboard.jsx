@@ -5,6 +5,7 @@ const actionMeta = {
   watch_agent: { label: "Run agent for me", callback: "watch_agent", tone: "primary" },
   self_complete: { label: "Mark done", callback: "self_complete", tone: "secondary" },
   skip: { label: "Skip for now", callback: "skip_task", tone: "ghost" },
+  toggle_full_checklist: { label: "Show full checklist", callback: "toggle_full_checklist", tone: "ghost" },
 };
 
 const prettyLabel = {
@@ -102,6 +103,8 @@ function triggerAction(action) {
 function WorkspacePreview(props) {
   const nextAgentTask = props.nextAgentTask;
   const diagnostics = props.health || {};
+  const machine = props.machinePanel || {};
+  const transcript = props.latestTranscript || machine.lastTranscript || machine.lastOutput;
 
   if (props.streamUrl) {
     return (
@@ -126,6 +129,179 @@ function WorkspacePreview(props) {
         alt="latest workspace capture"
         style={{ width: "100%", height: "420px", objectFit: "cover", display: "block" }}
       />
+    );
+  }
+
+  if (props.workspaceMode === "local_machine") {
+    return (
+      <div
+        style={{
+          padding: "20px",
+          height: "420px",
+          display: "grid",
+          gap: "14px",
+          alignContent: "start",
+          background: "linear-gradient(180deg, rgba(7,15,28,0.98), rgba(3,10,20,0.98))",
+        }}
+      >
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
+            gap: "10px",
+          }}
+        >
+          {[
+            ["Backend", machine.backend || "local"],
+            ["Browser", machine.browserMode || "system-browser"],
+            ["Workdir", machine.workDir ? machine.workDir.split("/").slice(-2).join("/") : "waiting"],
+            ["Last URL", machine.lastUrl ? "opened" : "none"],
+          ].map(([label, value]) => (
+            <div
+              key={label}
+              style={{
+                background: "rgba(148,163,184,0.08)",
+                border: "1px solid rgba(148,163,184,0.14)",
+                borderRadius: "14px",
+                padding: "10px 12px",
+              }}
+            >
+              <div style={{ fontSize: "11px", color: "#8ba0b7", textTransform: "uppercase", letterSpacing: "0.08em" }}>{label}</div>
+              <div style={{ fontSize: "13px", fontWeight: 700, marginTop: "4px", wordBreak: "break-word" }}>{value}</div>
+            </div>
+          ))}
+        </div>
+
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "1.15fr 0.85fr",
+            gap: "12px",
+            minHeight: "0",
+            flex: 1,
+          }}
+        >
+          <div
+            style={{
+              background: "rgba(8,13,23,0.92)",
+              border: "1px solid rgba(148,163,184,0.14)",
+              borderRadius: "16px",
+              padding: "0",
+              overflow: "hidden",
+              minHeight: "260px",
+            }}
+          >
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                padding: "12px 14px",
+                borderBottom: "1px solid rgba(148,163,184,0.12)",
+                background: "rgba(255,255,255,0.02)",
+              }}
+            >
+              <div style={{ display: "flex", gap: "8px" }}>
+                <span style={{ width: "11px", height: "11px", borderRadius: "999px", background: "#fb7185" }} />
+                <span style={{ width: "11px", height: "11px", borderRadius: "999px", background: "#f59e0b" }} />
+                <span style={{ width: "11px", height: "11px", borderRadius: "999px", background: "#22c55e" }} />
+              </div>
+              <div style={{ fontSize: "12px", color: "#93a7bb", fontFamily: '"SFMono-Regular", "Menlo", monospace' }}>
+                {machine.lastCommand || "waiting for first agent step"}
+              </div>
+            </div>
+            <div
+              style={{
+                fontFamily: '"SFMono-Regular", "Menlo", monospace',
+                fontSize: "12px",
+                lineHeight: 1.65,
+                color: "#d3f8de",
+                padding: "16px 18px",
+                whiteSpace: "pre-wrap",
+                overflow: "auto",
+                height: "100%",
+                maxHeight: "320px",
+              }}
+            >
+              {transcript || "# waiting for the first agent-run step..."}
+            </div>
+          </div>
+
+          <div style={{ display: "grid", gap: "12px", alignContent: "start" }}>
+            <div
+              style={{
+                background: "rgba(148,163,184,0.06)",
+                border: "1px solid rgba(148,163,184,0.12)",
+                borderRadius: "16px",
+                padding: "14px 16px",
+              }}
+            >
+              <div style={{ fontSize: "11px", color: "#8ba0b7", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: "6px" }}>
+                Agent status
+              </div>
+              <div style={{ fontSize: "15px", fontWeight: 700, lineHeight: 1.4 }}>
+                {props.latestStatus || "Ready for the first agent action"}
+              </div>
+            </div>
+
+            {machine.files && machine.files.length > 0 ? (
+              <div
+                style={{
+                  background: "rgba(148,163,184,0.06)",
+                  border: "1px solid rgba(148,163,184,0.12)",
+                  borderRadius: "16px",
+                  padding: "14px 16px",
+                }}
+              >
+                <div style={{ fontSize: "11px", color: "#8ba0b7", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: "8px" }}>
+                  Workbench files
+                </div>
+                <div style={{ display: "grid", gap: "6px", fontFamily: '"SFMono-Regular", "Menlo", monospace', fontSize: "12px", color: "#d9e2ec" }}>
+                  {machine.files.map((file) => (
+                    <div key={file}>{file}</div>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+
+            {nextAgentTask ? (
+              <div
+                style={{
+                  background: "rgba(34,211,238,0.08)",
+                  border: "1px solid rgba(34,211,238,0.16)",
+                  borderRadius: "16px",
+                  padding: "14px 16px",
+                }}
+              >
+                <div style={{ fontSize: "11px", color: "#8ba0b7", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: "6px" }}>
+                  Next agent-ready step
+                </div>
+                <div style={{ fontSize: "14px", fontWeight: 700, lineHeight: 1.45 }}>
+                  {nextAgentTask.taskId} {nextAgentTask.title}
+                </div>
+              </div>
+            ) : null}
+          </div>
+        </div>
+
+        <details
+          style={{
+            background: "rgba(148,163,184,0.05)",
+            border: "1px solid rgba(148,163,184,0.1)",
+            borderRadius: "14px",
+            padding: "10px 12px",
+          }}
+        >
+          <summary style={{ cursor: "pointer", fontSize: "12px", color: "#8ba0b7", fontWeight: 700 }}>
+            Runtime diagnostics
+          </summary>
+          <div style={{ marginTop: "10px", display: "grid", gap: "6px", fontFamily: '"SFMono-Regular", "Menlo", monospace', fontSize: "12px", color: "#cfd9e5" }}>
+            {Object.entries(diagnostics).map(([key, value]) => (
+              <div key={key}>{key}: {value}</div>
+            ))}
+          </div>
+        </details>
+      </div>
     );
   }
 
@@ -243,13 +419,15 @@ export default function OnboardingDashboard(props) {
   const availableActions = props.availableActions || [];
   const currentTaskSources = props.currentTaskSources || [];
   const evidence = props.currentTaskEvidence || [];
-  const walkthrough = props.walkthrough || {};
-  const quickReplies = walkthrough.quickReplies || [];
+  const guidedStep = props.guidedStep || {};
   const actionLabels = props.actionLabels || {};
   const completion = props.totalTasks > 0 ? Math.round((props.completedTasks / props.totalTasks) * 100) : 0;
   const personaLine = [props.employeeName, props.personaTitle].filter(Boolean).join(" • ");
-  const stageBadge = badgeStyle(props.workspaceMode === "live" ? "live" : "demo");
+  const stageBadge = badgeStyle(props.workspaceMode === "live" ? "live" : props.workspaceMode === "local_machine" ? "status" : "demo");
   const upcomingTasks = props.upcomingTasks || [];
+  const note = props.note;
+  const milestone = props.milestoneProgress || {};
+  const machine = props.machinePanel || {};
 
   return (
     <div
@@ -262,17 +440,31 @@ export default function OnboardingDashboard(props) {
         borderRadius: "26px",
         padding: "24px",
         boxShadow: "0 30px 90px rgba(2,6,23,0.35)",
-        maxWidth: desktopLayout ? "none" : "1360px",
-        margin: desktopLayout ? 0 : "0 auto",
-        position: desktopLayout ? "fixed" : "relative",
-        left: desktopLayout ? "72px" : "auto",
-        right: desktopLayout ? "332px" : "auto",
-        top: desktopLayout ? "82px" : "auto",
-        bottom: desktopLayout ? "122px" : "auto",
-        overflow: "auto",
-        zIndex: props.renderLayer || 8,
+        width: desktopLayout ? "min(1320px, calc(100vw - 470px))" : "100%",
+        maxWidth: "1320px",
+        minWidth: desktopLayout ? "980px" : "0",
+        margin: "0 auto",
+        position: "relative",
+        overflow: "hidden",
+        boxSizing: "border-box",
       }}
     >
+      {note ? (
+        <div
+          style={{
+            marginBottom: "16px",
+            background: "rgba(251,146,60,0.08)",
+            border: "1px solid rgba(251,146,60,0.16)",
+            borderRadius: "16px",
+            padding: "12px 14px",
+            fontSize: "14px",
+            color: "#f8d5bb",
+            lineHeight: 1.5,
+          }}
+        >
+          {note}
+        </div>
+      ) : null}
       <div
         style={{
           display: "flex",
@@ -298,7 +490,7 @@ export default function OnboardingDashboard(props) {
                 textTransform: "uppercase",
               }}
             >
-              {props.workspaceMode === "live" ? "Live agent mode" : "Guided demo mode"}
+              {props.workspaceMode === "live" ? "Live agent mode" : props.workspaceMode === "local_machine" ? "Local machine mode" : "Guided demo mode"}
             </span>
             {props.currentTaskIndex ? (
               <span
@@ -321,7 +513,7 @@ export default function OnboardingDashboard(props) {
             {personaLine || "Your onboarding workspace"}
           </div>
           <div style={{ fontSize: "15px", color: "#b8c7d6", maxWidth: "820px", lineHeight: 1.6 }}>
-            One active step, one clear next action. Use the buttons in this panel instead of guessing what to type in chat.
+            One active step, one clear next action. The left side is the machine and proof surface. The right side is the onboarding decision surface.
           </div>
         </div>
 
@@ -363,7 +555,7 @@ export default function OnboardingDashboard(props) {
       <div
         style={{
           display: "grid",
-          gridTemplateColumns: "minmax(0, 1.3fr) minmax(330px, 0.95fr)",
+          gridTemplateColumns: desktopLayout ? "minmax(0, 1.3fr) minmax(340px, 0.95fr)" : "1fr",
           gap: "20px",
           alignItems: "start",
         }}
@@ -405,7 +597,11 @@ export default function OnboardingDashboard(props) {
                 color: "#b9c7d6",
               }}
             >
-              {props.workspaceMode === "live" ? "Agent live" : "Demo preview"}
+              {props.workspaceMode === "live"
+                ? "Agent live"
+                : props.workspaceMode === "local_machine"
+                  ? "Local machine"
+                  : "Demo preview"}
             </div>
           </div>
 
@@ -441,14 +637,19 @@ export default function OnboardingDashboard(props) {
                   {prettyLabel[props.currentTaskPriority] || props.currentTaskPriority}
                 </span>
               ) : null}
-              {props.currentTaskStatus ? (
+                    {props.currentTaskStatus ? (
                 <span style={{ ...badgeStyle("status"), borderRadius: "999px", padding: "4px 10px", fontSize: "12px", fontWeight: 700 }}>
                   {prettyLabel[props.currentTaskStatus] || props.currentTaskStatus}
                 </span>
-              ) : null}
-            </div>
+                    ) : null}
+                    {props.currentTaskPhase ? (
+                      <span style={{ ...badgeStyle("status"), borderRadius: "999px", padding: "4px 10px", fontSize: "12px", fontWeight: 700 }}>
+                        {String(props.currentTaskPhase).replace(/_/g, " ")}
+                      </span>
+                    ) : null}
+                </div>
 
-            {walkthrough.summary ? (
+            {guidedStep.summary ? (
               <div
                 style={{
                   marginTop: "14px",
@@ -461,17 +662,17 @@ export default function OnboardingDashboard(props) {
                 <div style={{ fontSize: "11px", color: "#8ba0b7", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: "4px" }}>
                   What to do now
                 </div>
-                <div style={{ fontSize: "14px", lineHeight: 1.55, color: "#d4e0eb" }}>{walkthrough.summary}</div>
+                <div style={{ fontSize: "14px", lineHeight: 1.55, color: "#d4e0eb" }}>{guidedStep.summary}</div>
               </div>
             ) : null}
 
-            {walkthrough.steps && walkthrough.steps.length > 0 ? (
+            {guidedStep.what_to_do_now && guidedStep.what_to_do_now.length > 0 ? (
               <div style={{ marginTop: "16px" }}>
                 <div style={{ fontSize: "12px", color: "#8ba0b7", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: "8px" }}>
                   Walkthrough
                 </div>
                 <div style={{ display: "grid", gap: "8px" }}>
-                  {walkthrough.steps.map((step, index) => (
+                  {guidedStep.what_to_do_now.map((step, index) => (
                     <div
                       key={`${index}-${step}`}
                       style={{
@@ -507,7 +708,7 @@ export default function OnboardingDashboard(props) {
               </div>
             ) : null}
 
-            {walkthrough.completionHint ? (
+            {guidedStep.fastest_path ? (
               <div
                 style={{
                   marginTop: "14px",
@@ -520,13 +721,40 @@ export default function OnboardingDashboard(props) {
                 <div style={{ fontSize: "11px", color: "#fcd34d", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: "4px" }}>
                   Fastest way to finish this step
                 </div>
-                <div style={{ fontSize: "13px", lineHeight: 1.5, color: "#fde68a" }}>{walkthrough.completionHint}</div>
+                <div style={{ fontSize: "13px", lineHeight: 1.5, color: "#fde68a" }}>{guidedStep.fastest_path}</div>
               </div>
             ) : null}
 
-            {walkthrough.whyItMatters ? (
+            {guidedStep.why_it_matters ? (
               <div style={{ marginTop: "10px", fontSize: "12px", lineHeight: 1.5, color: "#9fb0c2" }}>
-                Why this matters: {walkthrough.whyItMatters}
+                Why this matters: {guidedStep.why_it_matters}
+              </div>
+            ) : null}
+
+            {props.stepTargets && props.stepTargets.length > 0 ? (
+              <div style={{ marginTop: "14px" }}>
+                <div style={{ fontSize: "12px", color: "#8ba0b7", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: "8px" }}>
+                  Live targets
+                </div>
+                <div style={{ display: "grid", gap: "8px" }}>
+                  {props.stepTargets.map((target) => (
+                    <div
+                      key={target}
+                      style={{
+                        background: "rgba(148,163,184,0.06)",
+                        border: "1px solid rgba(148,163,184,0.12)",
+                        borderRadius: "14px",
+                        padding: "10px 12px",
+                        fontSize: "13px",
+                        lineHeight: 1.5,
+                        color: "#dbe6f1",
+                        overflowWrap: "anywhere",
+                      }}
+                    >
+                      {target}
+                    </div>
+                  ))}
+                </div>
               </div>
             ) : null}
 
@@ -559,34 +787,10 @@ export default function OnboardingDashboard(props) {
                   </button>
                 );
               })}
+              <button style={buttonStyle(actionMeta.toggle_full_checklist.tone)} onClick={() => triggerAction("toggle_full_checklist")}>
+                {props.showFullChecklist ? "Hide full checklist" : "Show full checklist"}
+              </button>
             </div>
-
-            {quickReplies.length > 0 ? (
-              <div style={{ marginTop: "12px" }}>
-                <div style={{ fontSize: "11px", color: "#8ba0b7", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: "6px" }}>
-                  Suggested replies
-                </div>
-                <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
-                  {quickReplies.map((reply) => (
-                    <button
-                      key={reply}
-                      style={{
-                        borderRadius: "999px",
-                        border: "1px solid rgba(148,163,184,0.18)",
-                        background: "rgba(148,163,184,0.08)",
-                        color: "#d6e0eb",
-                        padding: "7px 10px",
-                        fontSize: "12px",
-                        cursor: "pointer",
-                      }}
-                      onClick={() => sendSuggestion(reply)}
-                    >
-                      {reply}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            ) : null}
 
             {props.healthHint ? (
               <div
@@ -672,6 +876,17 @@ export default function OnboardingDashboard(props) {
                 </div>
               </div>
             ) : null}
+
+            {milestone.total ? (
+              <div style={{ marginTop: "16px" }}>
+                <div style={{ fontSize: "12px", color: "#8ba0b7", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: "6px" }}>
+                  Engineering milestone
+                </div>
+                <div style={{ fontSize: "14px", fontWeight: 700 }}>
+                  {milestone.completed}/{milestone.total} checkpoints complete
+                </div>
+              </div>
+            ) : null}
           </div>
 
           <div
@@ -728,6 +943,31 @@ export default function OnboardingDashboard(props) {
                 ))}
               </div>
             )}
+
+            {props.latestTranscript ? (
+              <div style={{ marginTop: "16px" }}>
+                <div style={{ fontSize: "12px", color: "#8ba0b7", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: "8px" }}>
+                  Latest terminal log
+                </div>
+                <div
+                  style={{
+                    background: "rgba(8,13,23,0.9)",
+                    border: "1px solid rgba(148,163,184,0.12)",
+                    borderRadius: "14px",
+                    padding: "12px 14px",
+                    fontFamily: '"SFMono-Regular", "Menlo", monospace',
+                    fontSize: "12px",
+                    lineHeight: 1.6,
+                    color: "#cfe9d5",
+                    whiteSpace: "pre-wrap",
+                    maxHeight: "220px",
+                    overflow: "auto",
+                  }}
+                >
+                  {props.latestTranscript}
+                </div>
+              </div>
+            ) : null}
           </div>
         </div>
       </div>

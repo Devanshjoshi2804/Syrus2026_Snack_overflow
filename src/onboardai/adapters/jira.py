@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import json
 import urllib.parse
 import urllib.error
@@ -16,18 +17,36 @@ class JiraAdapter:
         self.config = config or load_config()
         self.base_url = self.config.jira_url.rstrip("/")
         self.cloud_id = self.config.atlassian_cloud_id
+        self.email = self.config.atlassian_email
         self.api_token = self.config.atlassian_api_token
         self.project_key = self.config.jira_project_key
 
     def is_available(self) -> bool:
-        return bool(self.cloud_id and self.api_token and self.base_url)
+        return bool(self.api_token and self.base_url and (self.email or self.cloud_id))
+
+    def auth_mode(self) -> str:
+        if self.email and self.api_token:
+            return "basic_user_token"
+        if self.cloud_id and self.api_token:
+            return "bearer_service_token"
+        if self.api_token:
+            return "token_missing_identity"
+        return "unconfigured"
 
     def execute(self, task_title: str, state: OnboardingState) -> IntegrationResult:
         if self.is_available():
+            starter_ticket = state.selected_starter_ticket or {}
+            tracking_url = starter_ticket.get("Tracking URL")
+            issue_key = self.issue_key_from_url(tracking_url) if tracking_url else None
+            issue_visible = self.issue_exists(issue_key) if issue_key else None
+            project_key = self.resolve_project_key()
+            detail_parts = [f"Jira project={project_key or 'unresolved'}"]
+            if issue_key:
+                detail_parts.append(f"issue `{issue_key}` accessible={issue_visible}")
             return IntegrationResult(
-                success=True,
-                status="available",
-                detail=f"Jira adapter is configured for task '{task_title}'.",
+                success=bool(project_key) and (issue_visible if issue_visible is not None else True),
+                status="available" if project_key else "blocked",
+                detail=". ".join(detail_parts),
             )
         return self.dry_run(task_title, state)
 
@@ -45,6 +64,34 @@ class JiraAdapter:
         payload = self._request(f"/project/{key}")
         return payload is not None and "key" in payload
 
+    def issue_url(self, issue_key: str | None) -> str | None:
+        if not issue_key:
+            return None
+        return f"{self.base_url}/browse/{issue_key}"
+
+    def issue_exists(self, issue_key: str | None) -> bool:
+        if not self.is_available() or not issue_key:
+            return False
+        payload = self._request(f"/issue/{issue_key}")
+        return payload is not None and payload.get("key") == issue_key
+
+    def resolve_tracking_url(self, starter_ticket: dict[str, str] | None) -> str | None:
+        if not starter_ticket:
+            return None
+        issue_key = self.resolve_issue_key(starter_ticket)
+        if issue_key:
+            return self.issue_url(issue_key)
+        return starter_ticket.get("Tracking URL")
+
+    @staticmethod
+    def issue_key_from_url(url: str | None) -> str | None:
+        if not url:
+            return None
+        parsed = urllib.parse.urlparse(url)
+        if "/browse/" not in parsed.path:
+            return None
+        return parsed.path.rsplit("/", 1)[-1] or None
+
     def accessible_projects(self) -> list[dict]:
         if not self.is_available():
             return []
@@ -61,6 +108,19 @@ class JiraAdapter:
         if len(projects) == 1:
             return projects[0].get("key")
         return None
+
+    def resolve_issue_key(self, starter_ticket: dict[str, str] | None) -> str | None:
+        if not starter_ticket:
+            return None
+        target_project_key = self.resolve_project_key()
+        if target_project_key:
+            existing_issue = self._find_existing_issue(starter_ticket, target_project_key)
+            if existing_issue:
+                return existing_issue
+        fallback = self.issue_key_from_url(starter_ticket.get("Tracking URL"))
+        if fallback and self.issue_exists(fallback):
+            return fallback
+        return fallback
 
     def seed_starter_issues(
         self,
@@ -139,13 +199,35 @@ class JiraAdapter:
             return issues[0].get("key")
         return None
 
-    def _build_description(self, ticket: dict[str, str]) -> str:
-        return (
-            f"Persona: {ticket['Persona']}\n"
-            f"Repository: {ticket['Repo']}\n"
-            f"Repository URL: {ticket['Repo URL']}\n\n"
-            f"{ticket['Description']}"
-        )
+    def _build_description(self, ticket: dict[str, str]) -> dict:
+        lines = [
+            f"Persona: {ticket['Persona']}",
+            f"Repository: {ticket['Repo']}",
+            f"Repository URL: {ticket['Repo URL']}",
+            "",
+            ticket["Description"],
+        ]
+        content = []
+        for line in lines:
+            if line:
+                content.append(
+                    {
+                        "type": "paragraph",
+                        "content": [
+                            {
+                                "type": "text",
+                                "text": line,
+                            }
+                        ],
+                    }
+                )
+            else:
+                content.append({"type": "paragraph", "content": []})
+        return {
+            "type": "doc",
+            "version": 1,
+            "content": content,
+        }
 
     def _request(
         self,
@@ -157,21 +239,50 @@ class JiraAdapter:
         if not self.is_available():
             return None
         data = None if body is None else json.dumps(body).encode("utf-8")
-        request = urllib.request.Request(
-            f"https://api.atlassian.com/ex/jira/{self.cloud_id}/rest/api/3{path}",
-            data=data,
-            headers={
-                "Authorization": f"Bearer {self.api_token}",
-                "Accept": "application/json",
-                "Content-Type": "application/json",
-                "User-Agent": "onboardai-setup",
-            },
-            method=method,
-        )
-        try:
-            with urllib.request.urlopen(request, timeout=30) as response:
-                return json.loads(response.read().decode("utf-8"))
-        except urllib.error.HTTPError:
+        last_error_status = None
+        for url, headers in self._request_attempts(path):
+            request = urllib.request.Request(
+                url,
+                data=data,
+                headers=headers,
+                method=method,
+            )
+            try:
+                with urllib.request.urlopen(request, timeout=30) as response:
+                    return json.loads(response.read().decode("utf-8"))
+            except urllib.error.HTTPError as exc:
+                last_error_status = exc.code
+                if exc.code in {401, 403, 404}:
+                    continue
+                return None
+            except Exception:
+                continue
+        if last_error_status is not None:
             return None
-        except Exception:
-            return None
+        return None
+
+    def _request_attempts(self, path: str) -> list[tuple[str, dict[str, str]]]:
+        headers = self._headers()
+        attempts: list[tuple[str, dict[str, str]]] = []
+        if self.cloud_id:
+            attempts.append(
+                (
+                    f"https://api.atlassian.com/ex/jira/{self.cloud_id}/rest/api/3{path}",
+                    headers,
+                )
+            )
+        attempts.append((f"{self.base_url}/rest/api/3{path}", headers))
+        return attempts
+
+    def _headers(self) -> dict[str, str]:
+        headers = {
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+            "User-Agent": "onboardai-setup",
+        }
+        if self.email:
+            token = base64.b64encode(f"{self.email}:{self.api_token}".encode("utf-8")).decode("ascii")
+            headers["Authorization"] = f"Basic {token}"
+        else:
+            headers["Authorization"] = f"Bearer {self.api_token}"
+        return headers

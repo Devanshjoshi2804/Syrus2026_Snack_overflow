@@ -61,4 +61,4 @@ def test_engine_builds_frontend_and_full_stack_clone_instructions(project_root):
     full_stack_ticket_task = next(task for task in full_stack_state.task_plan if task.task_id == "JFS-17")
     full_stack_ticket_instruction = engine._build_instruction(full_stack_ticket_task, full_stack_state)
     assert full_stack_ticket_instruction.url
-    assert "FLOW-FS-001" in full_stack_ticket_instruction.url
+    assert full_stack_ticket_instruction.url.endswith("/BTS-12") or "FLOW-FS-001" in full_stack_ticket_instruction.url
