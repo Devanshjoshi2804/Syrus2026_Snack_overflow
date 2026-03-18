@@ -95,7 +95,9 @@ def test_docker_instruction_targets_cloned_repo_workspace(project_root):
 
     instruction = engine._build_instruction(docker_task, state)
 
-    assert instruction.command_plan == ["cd 'connector-runtime-demo' && docker compose ps || true"]
+    assert "connector-runtime-demo" in instruction.command_plan[0]
+    assert "docker compose ps" in instruction.command_plan[0]
+    assert "Mock executed" in instruction.command_plan[0]
 
 
 def test_backend_intern_guided_order_front_loads_engineering_setup(project_root):

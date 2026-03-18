@@ -191,6 +191,9 @@ class GuidedStepView(BaseModel):
     upcoming_steps: list[str] = Field(default_factory=list)
     agent_available: bool = False
     agent_fallback_message: str | None = None
+    time_estimate: str | None = None
+    escalation_contact: str | None = None
+    blocked_hint: str | None = None
 
 
 class KnowledgeChunk(BaseModel):

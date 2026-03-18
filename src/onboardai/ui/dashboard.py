@@ -259,6 +259,104 @@ def _live_targets(state: OnboardingState) -> dict[str, str]:
     }
 
 
+def _time_estimate(task) -> str:
+    if not task:
+        return "~5 min"
+    title = task.title.lower()
+    if "laptop" in title:
+        return "~2 min"
+    if "google workspace" in title or "slack" in title:
+        return "~5 min"
+    if "1password" in title or "mfa" in title or "vpn" in title:
+        return "~10 min"
+    if "github" in title or "jira" in title or "notion" in title:
+        return "~5 min"
+    if "node.js" in title or "python 3.11" in title or "poetry" in title:
+        return "~10 min"
+    if "pnpm" in title or "git identity" in title or "git config" in title:
+        return "~5 min"
+    if "clone" in title:
+        return "~5 min"
+    if "docker compose" in title or "start the service" in title or "start development server" in title:
+        return "~10 min"
+    if "migrations" in title:
+        return "~5 min"
+    if "unit tests" in title or "test suite" in title:
+        return "~5 min"
+    if "architecture" in title or "api standards" in title or "pr guidelines" in title or "branching" in title:
+        return "~15 min"
+    if "engineering standards" in title or "company overview" in title:
+        return "~20 min"
+    if "security" in title or "gdpr" in title or "code of conduct" in title or "compliance" in title:
+        return "~20 min"
+    if "nda" in title or "handbook" in title or "acceptable use" in title or "ip assignment" in title:
+        return "~10 min"
+    if "bamboohR" in title or "expensify" in title or "payroll" in title:
+        return "~10 min"
+    if "starter ticket" in title:
+        return "~10 min"
+    if "git workflow" in title:
+        return "~10 min"
+    return "~10 min"
+
+
+def _escalation_contact(task) -> str:
+    if not task:
+        return "Contact your manager or IT: it@novabyte.dev"
+    title = task.title.lower()
+    category = (task.category or "").lower()
+    if "laptop" in title or "it setup" in category:
+        return "IT helpdesk: it@novabyte.dev · Slack #it-help"
+    if "google workspace" in title:
+        return "IT helpdesk: it@novabyte.dev · if invite missing, ask IT"
+    if "slack" in title:
+        return "HR: hr@novabyte.dev · or ask your manager"
+    if "github" in title:
+        return "Manager or mentor · Slack #engineering-general"
+    if "jira" in title or "atlassian" in title:
+        return "Engineering manager · tanvi.s@novabyte.dev"
+    if "1password" in title or "mfa" in title or "vpn" in title:
+        return "IT helpdesk: it@novabyte.dev"
+    if "nda" in title or "handbook" in title or "ip assignment" in title or "legal" in title:
+        return "HR: hr@novabyte.dev"
+    if "compliance" in title or "gdpr" in title or "security" in title or "code of conduct" in title:
+        return "HR: hr@novabyte.dev"
+    if "bamboohR" in title or "payroll" in title or "expensify" in title:
+        return "HR: hr@novabyte.dev"
+    if any(kw in title for kw in ("node", "pnpm", "python", "poetry", "docker", "clone", "git", "terraform", "kubectl", "helm")):
+        return "Mentor or #engineering-general on Slack"
+    return "Manager or mentor · Slack #engineering-general"
+
+
+def _blocked_hint(task) -> str | None:
+    if not task:
+        return None
+    title = task.title.lower()
+    if "google workspace" in title:
+        return "If the invite email hasn't arrived, contact IT at it@novabyte.dev — it usually takes 15–30 min."
+    if "slack" in title:
+        return "If you can't sign in, try SSO with your NovaByte Google account. Ask IT if the workspace invite is missing."
+    if "github organization invite" in title:
+        return "If the invite hasn't arrived, ask your manager or ping #engineering-general. GitHub invites sometimes go to spam."
+    if "jira workspace invite" in title:
+        return "If the invite is missing, contact tanvi.s@novabyte.dev. Jira invites can take up to an hour."
+    if "1password" in title:
+        return "If you didn't receive a 1Password invite, contact IT at it@novabyte.dev."
+    if "mfa" in title:
+        return "Use Google Authenticator or Authy. If you're locked out, contact IT immediately."
+    if "vpn" in title:
+        return "Download WireGuard and ask IT for the config file if you don't have it. Never share the VPN config."
+    if "laptop" in title:
+        return "If your laptop hasn't arrived yet, contact IT at it@novabyte.dev. You can skip this and return later."
+    if "node.js" in title or "pnpm" in title or "python" in title or "poetry" in title:
+        return "If a command fails, paste the error in #engineering-general or ask your mentor. Type $ <command> here to run it directly."
+    if "clone" in title:
+        return "If the clone fails with permission denied, make sure you accepted the GitHub org invite first."
+    if "docker compose" in title:
+        return "If Docker isn't installed, download Docker Desktop from docker.com. Ask your mentor if it fails to start."
+    return None
+
+
 def _step_targets(state: OnboardingState, current_task) -> list[str]:
     if not current_task:
         return []
@@ -268,9 +366,11 @@ def _step_targets(state: OnboardingState, current_task) -> list[str]:
     if "github" in title and targets["githubOrgLabel"]:
         lines.append(f"GitHub org: [{targets['githubOrgLabel']}]({targets['githubOrgUrl']})")
     if "slack" in title:
-        slack_url = state.dashboard_state.health.get("slack_workspace_url", "")
-        if slack_url:
-            lines.append(f"Slack workspace: [{slack_url}]({slack_url})")
+        slack_base = state.dashboard_state.health.get("slack_workspace_url", "").rstrip("/")
+        if slack_base:
+            lines.append(f"Slack workspace: [{slack_base}]({slack_base})")
+            lines.append(f"Join [#engineering-general]({slack_base}/channels/engineering-general)")
+            lines.append(f"Join [#new-joiners]({slack_base}/channels/new-joiners)")
     if "jira" in title and targets["jiraBaseUrl"]:
         project = targets["jiraProjectKey"] or "configured project"
         lines.append(f"Jira project: `{project}` on [{targets['jiraBaseUrl']}]({targets['jiraBaseUrl']})")
@@ -355,6 +455,9 @@ def _specific_guided_step(state: OnboardingState, current_task, next_agent_task)
     common_kwargs = {
         "source_citations": citations,
         "proof_status": proof_status,
+        "time_estimate": _time_estimate(current_task),
+        "escalation_contact": _escalation_contact(current_task),
+        "blocked_hint": _blocked_hint(current_task),
     }
 
     if "1password" in title:
@@ -726,6 +829,11 @@ def _guided_step_view(state: OnboardingState, current_task, next_agent_task) -> 
     proof_status = _latest_proof(state)
     agent_available = bool(current_task and current_task.automation_mode in AGENT_AUTOMATION_MODES)
     phase_label = PHASE_LABELS.get(current_task.display_phase, "Guided onboarding") if current_task else "Guided onboarding"
+    fallback_kwargs = {
+        "time_estimate": _time_estimate(current_task),
+        "escalation_contact": _escalation_contact(current_task),
+        "blocked_hint": _blocked_hint(current_task),
+    }
     if not current_task:
         return GuidedStepView(
             headline="Start by introducing yourself",
@@ -765,6 +873,7 @@ def _guided_step_view(state: OnboardingState, current_task, next_agent_task) -> 
             primary_actions=["Explain this step", "I have the laptop", "Skip for now"],
             upcoming_steps=[],
             agent_available=False,
+            **fallback_kwargs,
         )
     elif "google workspace" in title:
         view = GuidedStepView(
@@ -782,24 +891,30 @@ def _guided_step_view(state: OnboardingState, current_task, next_agent_task) -> 
             primary_actions=["Explain this step", "I activated it", "Skip for now"],
             upcoming_steps=[],
             agent_available=False,
+            **fallback_kwargs,
         )
     elif "slack" in title:
+        slack_base = state.dashboard_state.health.get("slack_workspace_url", "https://novabytetechnologies.slack.com").rstrip("/")
+        eng_channel_url = f"{slack_base}/channels/engineering-general"
+        joiners_url = f"{slack_base}/channels/new-joiners"
         view = GuidedStepView(
             headline=f"{phase_label} · join the required Slack channels",
-            summary="This is the first task the agent can help with if browser automation is available.",
+            summary=f"Join the NovaByte Slack workspace at {slack_base} and then join the mandatory channels below.",
             what_to_do_now=[
-                "Open Slack and join #engineering-general, #new-joiners, and your team channel.",
-                "If browser automation is ready, use Run agent for me and let the workspace handle it.",
-                "If you do it yourself, come back and mark the task done.",
+                f"Open {slack_base} — sign in with your NovaByte Google account if prompted.",
+                f"Join #engineering-general: {eng_channel_url}",
+                f"Join #new-joiners: {joiners_url}",
+                "Once you can see both channels, come back and click I joined Slack.",
             ],
-            fastest_path="Use Run agent for me, or type: let agent do it",
-            why_it_matters="Slack is where onboarding updates, support questions, and engineering communication happen.",
+            fastest_path=f"Click Run agent for me to open the workspace automatically, or go to {slack_base} directly.",
+            why_it_matters="Slack is where onboarding updates, support questions, and engineering communication happen. The OnboardAI bot will post your progress there.",
             source_citations=citations,
             proof_status=proof_status,
             primary_actions=["Explain this step", "Run agent for me", "I joined Slack", "Skip for now"],
             upcoming_steps=[],
             agent_available=True,
-            agent_fallback_message="If browser automation is unavailable, join the channels manually and mark the step done.",
+            agent_fallback_message=f"Browser automation will open {slack_base} — sign in and join #engineering-general and #new-joiners.",
+            **fallback_kwargs,
         )
     else:
         view = GuidedStepView(
@@ -822,6 +937,7 @@ def _guided_step_view(state: OnboardingState, current_task, next_agent_task) -> 
                 if agent_available
                 else None
             ),
+            **fallback_kwargs,
         )
 
     upcoming = _upcoming_tasks(state)[1:4]

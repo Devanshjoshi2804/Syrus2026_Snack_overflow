@@ -44,7 +44,7 @@ def test_engine_builds_frontend_and_full_stack_clone_instructions(project_root):
     )
     frontend_clone_task = next(task for task in frontend_state.task_plan if task.task_id == "JFR-04")
     frontend_instruction = engine._build_instruction(frontend_clone_task, frontend_state)
-    assert frontend_instruction.command_plan[0].startswith(
+    assert frontend_instruction.command_plan[1].startswith(
         "git clone https://github.com/NovaByte-Technologies/flowengine-web-demo"
     )
 

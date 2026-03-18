@@ -97,7 +97,9 @@ def mark_completed(
 
 
 def mark_skipped(state: OnboardingState, task_id: str, reason: str) -> None:
-    task = set_task_status(state, task_id, TaskStatus.SKIPPED)
+    # Treat skip as completed so it counts toward progress, score, and email triggers.
+    # The verification log records method="skipped_as_done" to distinguish from genuine work.
+    task = set_task_status(state, task_id, TaskStatus.COMPLETED)
     if not task:
         return
     record_verification(
@@ -105,8 +107,8 @@ def mark_skipped(state: OnboardingState, task_id: str, reason: str) -> None:
         VerificationEntry(
             task_id=task.task_id,
             task_title=task.title,
-            status=TaskStatus.SKIPPED,
-            method="skip",
-            details=reason,
+            status=TaskStatus.COMPLETED,
+            method="skipped_as_done",
+            details=reason or "Skipped — counted as done.",
         ),
     )

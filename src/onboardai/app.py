@@ -33,6 +33,8 @@ def _task_list_status_text(state) -> str:
     resolved = sum(
         1 for task in state.task_plan if task.status in {TaskStatus.COMPLETED, TaskStatus.SKIPPED}
     )
+    if getattr(state, "completion_status", None) == "completed":
+        return f"🎉 Onboarding Complete · {resolved}/{total} done"
     current_task = get_current_task(state)
     if current_task:
         current_index = next(
@@ -321,8 +323,41 @@ if cl is not None:  # pragma: no cover - exercised in Chainlit runtime
             author="OnboardAI",
         ).send()
 
+    async def _send_completion_banner(state, note: str | None = None):
+        """Send a rich celebration banner when onboarding is fully completed."""
+        total = len(state.task_plan)
+        resolved = sum(
+            1 for task in state.task_plan
+            if task.status in {TaskStatus.COMPLETED, TaskStatus.SKIPPED}
+        )
+        # Try to extract score from the completion message text
+        score_line = ""
+        if note:
+            for line in (note or "").splitlines():
+                if line.strip().startswith("- Score:"):
+                    score_line = line.strip().replace("- Score:", "").strip()
+                    break
+        score_display = f"  \n🏆 **Score:** {score_line}" if score_line else ""
+        name = state.employee_profile.name if state.employee_profile else "New Hire"
+        role = state.matched_persona.persona.title if state.matched_persona else "Employee"
+        banner = (
+            "---\n"
+            "# 🎉 Onboarding Completed Successfully!\n\n"
+            f"Congratulations **{name}** — you've completed your onboarding as **{role}** at NovaByte Technologies.\n\n"
+            f"✅ **{resolved} of {total} tasks** resolved{score_display}\n\n"
+            "Your HR completion report and engineering summary have been generated and sent.\n\n"
+            "You're all set to start contributing! Check Jira for your first starter ticket. 🚀\n"
+            "---"
+        )
+        await cl.Message(content=banner, author="OnboardAI").send()
+
     async def _sync_workspace(state, note: str | None = None):
         await _sync_task_list(state)
+        if getattr(state, "completion_status", None) == "completed":
+            if not cl.user_session.get("completion_banner_sent"):
+                cl.user_session.set("completion_banner_sent", True)
+                await _send_completion_banner(state, note)
+            return
         await _sync_workspace_message(state, note)
 
     @cl.on_message

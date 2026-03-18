@@ -1,0 +1,53 @@
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  font-weight: 500;
+  padding: 2px 7px 2px 5px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--surface);
+  white-space: nowrap;
+}
+
+.dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.icon {
+  font-size: 10px;
+  margin-left: 1px;
+}
+
+/* States */
+.ok {
+  border-color: #A7D3B7;
+  background: var(--success-bg);
+  color: var(--success);
+}
+.ok .dot { background: var(--success); }
+
+.pending {
+  border-color: #D4B896;
+  background: var(--warn-bg);
+  color: var(--warn);
+}
+.pending .dot { background: var(--warn); }
+
+.mock {
+  border-color: var(--border);
+  background: var(--neutral-bg);
+  color: var(--text-muted);
+}
+.mock .dot { background: var(--text-faint); }
+
+.error {
+  border-color: #F5ABAB;
+  background: var(--danger-bg);
+  color: var(--danger);
+}
+.error .dot { background: var(--danger); }

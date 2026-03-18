@@ -43,6 +43,25 @@ class LLMBackend:
     def is_enabled(self) -> bool:
         return self._get_client() is not None
 
+    def chat(self, user_message: str, system_context: str) -> str | None:
+        """General conversational response with injected task/session context."""
+        client = self._get_client()
+        if not client:
+            return None
+        try:
+            response = client.chat.completions.create(
+                model=self._model_name(),
+                messages=[
+                    {"role": "system", "content": system_context},
+                    {"role": "user", "content": user_message},
+                ],
+                max_tokens=600,
+                temperature=0.4,
+            )
+            return response.choices[0].message.content.strip()
+        except Exception:
+            return None
+
     def answer(self, question: str, context: str) -> str | None:
         """RAG QA: generate a grounded answer from retrieved context."""
         client = self._get_client()

@@ -119,6 +119,16 @@ def test_local_sandbox_does_not_append_mock_fallback_output(project_root):
     assert "fallback simulated" not in output
 
 
+def test_local_sandbox_does_not_export_npm_prefix_by_default(project_root):
+    config = AppConfig(project_root=project_root, sandbox_backend="local")
+    sandbox = LocalShellSandboxManager(config)
+    session = sandbox.start()
+
+    output = sandbox.run_command(session, 'printf "%s" "${NPM_CONFIG_PREFIX:-}"')
+
+    assert output == ""
+
+
 def test_local_sandbox_tracks_cd_prefix_with_follow_on_command(project_root):
     config = AppConfig(project_root=project_root, sandbox_backend="local")
     sandbox = LocalShellSandboxManager(config)
@@ -137,7 +147,7 @@ def test_local_sandbox_does_not_persist_cd_after_failed_chained_command(project_
     original_dir = session.metadata["current_dir"]
 
     sandbox.run_command(session, "mkdir -p connector-runtime-demo")
-    sandbox.run_command(session, "cd connector-runtime-demo && pnpm install")
+    sandbox.run_command(session, "cd connector-runtime-demo && command-that-fails")
 
     assert session.metadata["current_dir"] == original_dir
 
@@ -156,7 +166,7 @@ def test_worker_fails_when_local_command_returns_non_zero(project_root):
             expected_patterns={"repository": r"connector-runtime-demo"},
             command_plan=[
                 "mkdir -p connector-runtime-demo",
-                "cd connector-runtime-demo && pnpm install",
+                "cd connector-runtime-demo && command-that-fails",
             ],
         ),
         session,
@@ -164,3 +174,16 @@ def test_worker_fails_when_local_command_returns_non_zero(project_root):
 
     assert result.success is False
     assert "exit code" in (result.failure_reason or "")
+
+
+def test_prepare_command_only_scopes_npm_prefix_for_global_installs(project_root):
+    config = AppConfig(project_root=project_root, sandbox_backend="local")
+    sandbox = LocalShellSandboxManager(config)
+    session = sandbox.start()
+    env = sandbox._session_env(session)
+
+    node_command = sandbox._prepare_command('nvm install 20', env)
+    npm_command = sandbox._prepare_command('npm install -g pnpm@8', env)
+
+    assert 'export NPM_CONFIG_PREFIX=' not in node_command
+    assert 'export NPM_CONFIG_PREFIX=' in npm_command

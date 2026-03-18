@@ -1,0 +1,92 @@
+.row {
+  border-bottom: 1px solid var(--border);
+}
+
+.row:last-child {
+  border-bottom: none;
+}
+
+.row:hover {
+  background: var(--surface-raised);
+}
+
+.row td {
+  padding: 10px 14px;
+  vertical-align: middle;
+}
+
+.nameCell {
+  min-width: 180px;
+}
+
+.nameLink {
+  display: block;
+  font-weight: 600;
+  color: var(--accent-light);
+  font-size: 13px;
+}
+
+.nameLink:hover {
+  text-decoration: underline;
+}
+
+.role {
+  display: block;
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-top: 1px;
+}
+
+.phaseCell {
+  min-width: 260px;
+  width: 30%;
+}
+
+.progressCell {
+  white-space: nowrap;
+  text-align: right;
+}
+
+.pct {
+  display: block;
+  font-family: var(--mono);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.fraction {
+  display: block;
+  font-size: 11px;
+  color: var(--text-muted);
+  font-family: var(--mono);
+}
+
+.taskCell {
+  max-width: 220px;
+}
+
+.taskLabel {
+  display: block;
+  font-size: 12px;
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.intCell {
+  white-space: nowrap;
+}
+
+.badges {
+  display: flex;
+  gap: 4px;
+  flex-wrap: nowrap;
+}
+
+.dateCell {
+  font-size: 12px;
+  color: var(--text-muted);
+  white-space: nowrap;
+}

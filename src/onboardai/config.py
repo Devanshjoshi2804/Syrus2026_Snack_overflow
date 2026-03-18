@@ -67,6 +67,15 @@ class AppConfig(BaseModel):
     jira_url: str = os.getenv("ONBOARDAI_JIRA_URL", "https://novabytetechnologies.atlassian.net")
     atlassian_email: str | None = os.getenv("ONBOARDAI_ATLASSIAN_EMAIL")
     atlassian_api_token: str | None = os.getenv("ONBOARDAI_ATLASSIAN_API_TOKEN")
+    # SMTP email sending
+    smtp_host: str = os.getenv("SMTP_HOST", "smtp.gmail.com")
+    smtp_port: int = int(os.getenv("SMTP_PORT", "587"))
+    smtp_user: str | None = os.getenv("SMTP_USER")
+    smtp_password: str | None = os.getenv("SMTP_PASSWORD")
+    hr_email: str | None = os.getenv("HR_EMAIL")
+    slack_bot_token: str | None = os.getenv("SLACK_BOT_TOKEN")
+    slack_onboarding_channel: str = os.getenv("SLACK_ONBOARDING_CHANNEL", "#onboarding")
+    slack_notify_task_updates: bool = os.getenv("SLACK_NOTIFY_TASK_UPDATES", "true").lower() == "true"
     atlassian_cloud_id: str | None = os.getenv(
         "ONBOARDAI_ATLASSIAN_CLOUD_ID", "3bb1f4f8-ab91-436b-a8a7-4be6ee1a0611"
     )

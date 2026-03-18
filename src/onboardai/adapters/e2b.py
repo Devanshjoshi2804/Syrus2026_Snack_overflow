@@ -271,7 +271,7 @@ class LocalShellSandboxManager(SandboxManager):
                 "HOME": str(home_dir),
                 "TERM": "xterm-256color",
                 "NVM_DIR": str(nvm_dir),
-                "NPM_CONFIG_PREFIX": str(npm_prefix),
+                "ONBOARDAI_NPM_PREFIX": str(npm_prefix),
                 "PYTHONUSERBASE": str(home_dir / ".pyuserbase"),
                 "PIP_CACHE_DIR": str(home_dir / ".cache" / "pip"),
                 "ONBOARDAI_LOCAL_MACHINE": "1",
@@ -288,11 +288,15 @@ class LocalShellSandboxManager(SandboxManager):
     @staticmethod
     def _prepare_command(command: str, env: dict[str, str]) -> str:
         nvm_dir = env.get("NVM_DIR", "")
+        npm_prefix = env.get("ONBOARDAI_NPM_PREFIX", "")
+        prefix_export = ""
+        if re.search(r"\bnpm\s+install\s+-g\b", command):
+            prefix_export = f'export NPM_CONFIG_PREFIX="{npm_prefix}"; '
         nvm_bootstrap = (
             f'export NVM_DIR="{nvm_dir}"; '
             f'if [ -s "{nvm_dir}/nvm.sh" ]; then . "{nvm_dir}/nvm.sh"; fi; '
         )
-        return nvm_bootstrap + command
+        return nvm_bootstrap + prefix_export + command
 
     @staticmethod
     def _update_current_dir(

@@ -45,7 +45,7 @@ def test_workspace_surfaces_agent_browser_proof_and_milestone_progress(project_r
 
     props = build_dashboard_props(state)
     assert props["latestProof"] is not None
-    assert "Opened https://app.slack.com/client/T0AMFTZAN8G" in props["latestProof"]
+    assert "novabytetechnologies.slack.com" in props["latestProof"]
     assert props["milestoneProgress"]["completed"] >= 1
 
 
